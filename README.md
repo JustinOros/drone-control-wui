@@ -49,7 +49,12 @@ Click **Reset SIM to my GPS** to move the simulated drone to your real location 
 Tick **Show real buildings** in the panel and zoom in to level 16 or closer. Building outlines in view are fetched from the OpenStreetMap Overpass API (no account, no cost) and drawn on the map, colored by height.
 
 - Heights come from the `height` or `building:levels` tags. Buildings with neither are assumed to be 9 m.
-- When your mission path crosses a building taller than the mission altitude, a warning shows the tallest one and the altitude to raise it to, and Start mission asks you to confirm.
+- The **Building in the way** dropdown picks what happens when your path crosses a building taller than the mission altitude:
+  - **Fly around** (default) adds detour waypoints around the buildings, including the way back to the launch point, and previews the new route as a dashed blue line. Start mission sends the detoured route to the drone, so it works for real flights too.
+  - **Fly over** raises the mission altitude to clear the tallest building on the path, plus a 5 m margin.
+  - **Warn only** leaves the route alone and shows a warning with the tallest building and the altitude to raise it to.
+- If no way around is found (for example a waypoint sits inside a building), a warning shows and Start mission asks you to confirm.
+- Detours keep about 8 m of clearance and are only as good as the OpenStreetMap data, so always keep line of sight and watch the drone.
 - The SIM camera draws the buildings as simple 3D boxes (walls and roofs) from the drone's position and heading.
 - In the SIM the buildings are solid. Flying into a wall stops the drone with "Obstacle ahead, stopped". Fly higher than the roof to pass over. The SIM does not plan a path around buildings.
 - Terrain is treated as flat, and only building footprints are used (no trees, wires or terrain).

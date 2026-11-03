@@ -138,6 +138,14 @@ label { color:var(--dim); font-size:12px; }
       <label><input type="checkbox" id="bld"> show real buildings (OpenStreetMap)</label>
       <span id="bstat"></span>
     </div>
+    <div class="row">
+      <label for="avoid">Building in the way</label>
+      <select id="avoid">
+        <option value="around">Fly around</option>
+        <option value="over">Fly over</option>
+        <option value="warn">Warn only</option>
+      </select>
+    </div>
     <div id="bwarn"></div>
     <div class="row">
       <button id="manual">Manual: OFF</button>
@@ -466,7 +474,8 @@ function missionToggle() {
   if (hits.length && !confirm("The path may hit " + hits.length + " building" + (hits.length > 1 ? "s" : "") + ". Start anyway?")) return;
   missionActive = true;
   startingUntil = Date.now() + 30000;
-  send({ cmd: "mission", waypoints: wps, reverse: $("reverse").checked, alt: toM(parseFloat($("malt").value)) || 20 });
+  const plan = lastPlan || { route: wps, alt: toM(parseFloat($("malt").value)) || 20 };
+  send({ cmd: "mission", waypoints: plan.route, reverse: $("reverse").checked, alt: plan.alt });
 }
 
 $("mission").onclick = missionToggle;
@@ -944,40 +953,177 @@ function segHitsPoly(a, b, poly) {
   return false;
 }
 
-function checkMission() {
-  const el = $("bwarn");
-  if (!bldOn || wps.length === 0 || bldCache.size === 0) {
-    el.textContent = "";
-    return [];
+let planLine = null;
+let lastPlan = null;
+const CLEAR = 8;
+
+function hullOf(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [];
+  p.forEach(q => { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+  const up = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop();
+    up.push(q);
   }
-  const alt = toM(parseFloat($("malt").value)) || 20;
-  const start = droneMarker ? [droneMarker.getLatLng().lat, droneMarker.getLatLng().lng] : null;
-  const route = (start ? [start] : []).concat(wps, start ? [start] : []);
-  const lat0 = route[0][0], lon0 = route[0][1];
-  const kx = 111320 * Math.cos(lat0 * Math.PI / 180);
-  const pr = p => [(p[1] - lon0) * kx, (p[0] - lat0) * 111320];
-  const path = route.map(pr);
+  lo.pop();
+  up.pop();
+  return lo.concat(up);
+}
+
+function inflate(h, m) {
+  const cx = h.reduce((t, p) => t + p[0], 0) / h.length;
+  const cy = h.reduce((t, p) => t + p[1], 0) / h.length;
+  return h.map(p => {
+    const dx = p[0] - cx, dy = p[1] - cy;
+    const d = Math.hypot(dx, dy) || 1;
+    return [p[0] + dx / d * m, p[1] + dy / d * m];
+  });
+}
+
+function legBlocked(a, b, obs) {
+  for (const o of obs) {
+    if (segHitsPoly(a, b, o)) return true;
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (pointInPoly(mid[0], mid[1], o)) return true;
+  }
+  return false;
+}
+
+function detour(a, b, obs, nodeObs) {
+  if (!legBlocked(a, b, obs)) return [];
+  if (obs.some(o => pointInPoly(a[0], a[1], o) || pointInPoly(b[0], b[1], o))) return null;
+  const nodes = [a, b];
+  nodeObs.forEach((o, k) => o.forEach(p => {
+    if (!obs.some((q, j) => j !== k && pointInPoly(p[0], p[1], q))) nodes.push(p);
+  }));
+  const n = nodes.length;
+  const dist = new Array(n).fill(Infinity);
+  const prev = new Array(n).fill(-1);
+  const done = new Array(n).fill(false);
+  dist[0] = 0;
+  for (let it = 0; it < n; it++) {
+    let u = -1;
+    for (let i = 0; i < n; i++) if (!done[i] && (u < 0 || dist[i] < dist[u])) u = i;
+    if (u < 0 || dist[u] === Infinity) break;
+    done[u] = true;
+    if (u === 1) break;
+    for (let v = 0; v < n; v++) {
+      if (done[v]) continue;
+      const d = dist[u] + Math.hypot(nodes[u][0] - nodes[v][0], nodes[u][1] - nodes[v][1]);
+      if (d < dist[v] && !legBlocked(nodes[u], nodes[v], obs)) {
+        dist[v] = d;
+        prev[v] = u;
+      }
+    }
+  }
+  if (dist[1] === Infinity) return null;
+  const out = [];
+  for (let k = prev[1]; k > 0; k = prev[k]) out.unshift(nodes[k]);
+  return out;
+}
+
+function pathHits(path, alt) {
   const hits = [];
   bldCache.forEach(b => {
     if (b.h + ROOF_MARGIN <= alt) return;
-    const poly = b.pts.map(pr);
     for (let i = 0; i < path.length - 1; i++) {
-      if (segHitsPoly(path[i], path[i + 1], poly)) {
+      if (segHitsPoly(path[i], path[i + 1], b.proj)) {
         hits.push(b);
         return;
       }
     }
-    if (path.length === 1 && pointInPoly(path[0][0], path[0][1], poly)) hits.push(b);
   });
-  if (!hits.length) {
+  return hits;
+}
+
+function checkMission() {
+  const el = $("bwarn");
+  if (planLine) { planLine.remove(); planLine = null; }
+  lastPlan = null;
+  if (!bldOn || wps.length === 0 || bldCache.size === 0) {
     el.textContent = "";
     return [];
   }
-  const tallest = hits.reduce((m, b) => (b.h > m.h ? b : m), hits[0]);
-  el.textContent = "Warning: the path crosses " + hits.length + " building" + (hits.length > 1 ? "s" : "") +
-    " taller than the mission altitude. Tallest: " + (tallest.est ? "about " : "") + fmtLen(tallest.h) +
-    ". Raise the mission altitude to at least " + fmtLen(Math.ceil(tallest.h + ROOF_MARGIN)) + ".";
-  return hits;
+  const baseAlt = toM(parseFloat($("malt").value)) || 20;
+  const mode = $("avoid").value;
+  const start = droneMarker ? [droneMarker.getLatLng().lat, droneMarker.getLatLng().lng] : null;
+  const lat0 = start ? start[0] : wps[0][0];
+  const lon0 = start ? start[1] : wps[0][1];
+  const kx = 111320 * Math.cos(lat0 * Math.PI / 180);
+  const pr = p => [(p[1] - lon0) * kx, (p[0] - lat0) * 111320];
+  const unpr = q => [lat0 + q[1] / 111320, lon0 + q[0] / kx];
+  bldCache.forEach(b => { b.proj = b.pts.map(pr); });
+  const outLegs = (start ? [start] : []).concat(wps);
+  const flat = outLegs.map(pr);
+  let alt = baseAlt;
+  let route = wps.slice();
+  let note = "";
+  let failed = false;
+
+  if (mode === "over") {
+    const need = pathHits(start ? flat.concat([flat[0]]) : flat, 0).reduce((m, b) => Math.max(m, b.h + ROOF_MARGIN), 0);
+    if (need > alt) {
+      alt = Math.min(120, Math.ceil(need));
+      note = "Mission altitude raised to " + fmtLen(alt) + " to clear the buildings on the path.";
+      if (need > 120) failed = true;
+    }
+  } else if (mode === "around") {
+    const obs = [];
+    bldCache.forEach(b => {
+      if (b.h + ROOF_MARGIN <= alt) return;
+      const h = hullOf(b.proj);
+      if (h.length >= 3) obs.push(inflate(h, CLEAR * 0.8));
+    });
+    const nodesObs = obs.map(o => inflate(o, CLEAR * 0.2));
+    const rebuilt = [];
+    let added = 0;
+    for (let i = 1; i < flat.length; i++) {
+      const d = detour(flat[i - 1], flat[i], obs, nodesObs);
+      if (d === null) {
+        failed = true;
+        rebuilt.push(wps[i - (start ? 1 : 0)]);
+        continue;
+      }
+      d.forEach(p => rebuilt.push(unpr(p)));
+      added += d.length;
+      rebuilt.push(wps[i - (start ? 1 : 0)]);
+    }
+    if (!start) rebuilt.unshift(wps[0]);
+    if (start) {
+      const back = detour(flat[flat.length - 1], flat[0], obs, nodesObs);
+      if (back === null) failed = true;
+      else {
+        back.forEach(p => rebuilt.push(unpr(p)));
+        added += back.length;
+      }
+    }
+    route = rebuilt;
+    if (added) {
+      note = "Route adjusted: " + added + " detour point" + (added > 1 ? "s" : "") + " added to fly around buildings.";
+      planLine = L.polyline([start || wps[0]].concat(route), { color: "#4fc3f7", weight: 3, dashArray: "6 6" }).addTo(map);
+    }
+  }
+
+  const finalPath = (start ? [start] : []).concat(route, start ? [start] : []).map(pr);
+  const hits = pathHits(finalPath, alt);
+  lastPlan = { route, alt };
+  const msgs = [];
+  if (note) msgs.push(note);
+  if (hits.length) {
+    const tallest = hits.reduce((m, b) => (b.h > m.h ? b : m), hits[0]);
+    msgs.push("Warning: the path crosses " + hits.length + " building" + (hits.length > 1 ? "s" : "") +
+      " taller than the mission altitude. Tallest: " + (tallest.est ? "about " : "") + fmtLen(tallest.h) +
+      ". Raise the mission altitude to at least " + fmtLen(Math.ceil(tallest.h + ROOF_MARGIN)) + ".");
+  } else if (failed) {
+    msgs.push("Warning: no way around a building was found (a waypoint may sit inside one).");
+  }
+  el.style.color = hits.length || failed ? "" : "#4fc3f7";
+  el.textContent = msgs.join(" ");
+  return hits.length || failed ? (hits.length ? hits : [{}]) : [];
 }
 
 $("bld").onchange = () => {
@@ -992,10 +1138,13 @@ $("bld").onchange = () => {
     map.attributionControl.removeAttribution(BLD_ATTR);
     $("bstat").textContent = "";
     $("bwarn").textContent = "";
+    if (planLine) { planLine.remove(); planLine = null; }
+    lastPlan = null;
   }
   postBuildings();
 };
 $("malt").addEventListener("input", checkMission);
+$("avoid").addEventListener("change", checkMission);
 map.on("moveend", () => {
   clearTimeout(bldTimer);
   if (bldOn) bldTimer = setTimeout(loadBuildings, 700);
