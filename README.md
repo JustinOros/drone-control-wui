@@ -17,6 +17,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - Optional reverse leg: after the last waypoint, fly back through the waypoints in reverse, then return to launch
 - Metric / Imperial toggle for altitude and speed (remembered in your browser)
 - WiFi link for close range, 4G LTE link for long range, selectable at connect time
+- Real-world buildings from OpenStreetMap (free), drawn on the map, warned about in mission planning, and solid in the SIM
 
 ## How it works
 
@@ -42,6 +43,17 @@ Browser (map, video, keyboard, gamepad)
 **Fly with SIM** uses a bundled simulator (`sim.py`) that speaks MAVLink the way ArduCopter does: arm, takeoff, GUIDED velocity control, waypoint missions, RTL and land. Nothing else needs to be installed. It starts at 32.2226, -110.9747 by default, change it with the `SIM_LAT` and `SIM_LON` environment variables.
 
 Click **Reset SIM to my GPS** to move the simulated drone to your real location (the browser asks for location permission). It only works while disarmed, clears any waypoints, and is remembered in `sim_location.json` so the next SIM start begins there. That file is git-ignored.
+
+### Real buildings (free, OpenStreetMap)
+
+Tick **Show real buildings** in the panel and zoom in to level 16 or closer. Building outlines in view are fetched from the OpenStreetMap Overpass API (no account, no cost) and drawn on the map, colored by height.
+
+- Heights come from the `height` or `building:levels` tags. Buildings with neither are assumed to be 9 m.
+- When your mission path crosses a building taller than the mission altitude, a warning shows the tallest one and the altitude to raise it to, and Start mission asks you to confirm.
+- In the SIM the buildings are solid. Flying into a wall stops the drone with "Obstacle ahead, stopped". Fly higher than the roof to pass over. The SIM does not plan a path around buildings.
+- Terrain is treated as flat, and only building footprints are used (no trees, wires or terrain).
+- Data is OpenStreetMap contributors, licensed ODbL. The attribution shows on the map when buildings are on. Please respect the Overpass fair-use limits. Loaded areas are cached and requests are debounced.
+- The footprints are handed to the simulator through `sim_buildings.json`, which is git-ignored and recreated on each start.
 
 If a real ArduPilot SITL is already sending MAVLink to UDP port 14550, the SIM button connects to that instead and the bundled simulator is not started:
 

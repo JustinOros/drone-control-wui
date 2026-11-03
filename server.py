@@ -45,7 +45,7 @@ ensure_deps()
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pymavlink import mavutil
@@ -432,6 +432,8 @@ class Video:
             self.recording = False
 
 
+BUILDINGS_FILE = BASE / "sim_buildings.json"
+BUILDINGS_FILE.unlink(missing_ok=True)
 LOCATION_FILE = BASE / "sim_location.json"
 
 
@@ -488,6 +490,18 @@ def index():
 @app.get("/popout")
 def popout():
     return FileResponse(BASE / "popout.html")
+
+
+@app.post("/buildings")
+async def buildings(request: Request):
+    data = await request.json()
+    if not isinstance(data, list):
+        raise HTTPException(status_code=400, detail="expected a list")
+    data = data[:4000]
+    tmp = BUILDINGS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    os.replace(tmp, BUILDINGS_FILE)
+    return {"ok": True, "count": len(data)}
 
 
 def mjpeg():

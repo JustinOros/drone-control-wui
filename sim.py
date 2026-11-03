@@ -1,3 +1,4 @@
+import json
 import math
 import os
 import time
@@ -7,6 +8,9 @@ from pymavlink import mavutil
 HOME_LAT = float(os.environ.get("SIM_LAT", "32.2226"))
 HOME_LON = float(os.environ.get("SIM_LON", "-110.9747"))
 TARGET = os.environ.get("SIM_OUT", "udpout:127.0.0.1:14550")
+BUILDINGS_FILE = os.environ.get(
+    "SIM_BUILDINGS", os.path.join(os.path.dirname(os.path.abspath(__file__)), "sim_buildings.json")
+)
 M_PER_DEG = 111320.0
 CLIMB = 2.5
 DESCEND = 1.0
@@ -27,6 +31,18 @@ LAND = 9
 KNOWN_MODES = (STABILIZE, ACRO, ALT_HOLD, AUTO, GUIDED, LOITER, RTL, CIRCLE, LAND)
 
 mav2 = mavutil.mavlink
+
+
+def point_in_poly(lat, lon, pts):
+    inside = False
+    j = len(pts) - 1
+    for i in range(len(pts)):
+        yi, xi = pts[i]
+        yj, xj = pts[j]
+        if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
 
 
 class Sim:
@@ -53,6 +69,62 @@ class Sim:
         self.cmd = (0.0, 0.0, 0.0, 0.0, 0.0)
         self.rtl_phase = ""
         self.rtl_alt = RTL_ALT
+        self.buildings = []
+        self.bmtime = 0.0
+        self.last_warn = 0.0
+
+    def load_buildings(self):
+        try:
+            mtime = os.path.getmtime(BUILDINGS_FILE)
+        except OSError:
+            self.buildings = []
+            self.bmtime = 0.0
+            return
+        if mtime == self.bmtime:
+            return
+        self.bmtime = mtime
+        try:
+            with open(BUILDINGS_FILE) as f:
+                raw = json.load(f)
+        except (OSError, ValueError):
+            return
+        out = []
+        for item in raw:
+            try:
+                height = float(item[0])
+                flat = item[1]
+                pts = [(float(flat[i]), float(flat[i + 1])) for i in range(0, len(flat) - 1, 2)]
+            except (TypeError, ValueError, IndexError):
+                continue
+            if len(pts) < 3:
+                continue
+            lats = [p[0] for p in pts]
+            lons = [p[1] for p in pts]
+            out.append((height, pts, min(lats), max(lats), min(lons), max(lons)))
+        self.buildings = out
+        self.say("{} buildings loaded".format(len(out)))
+
+    def inside_building(self, lat, lon, alt):
+        for height, pts, lat_min, lat_max, lon_min, lon_max in self.buildings:
+            if alt >= height:
+                continue
+            if lat < lat_min or lat > lat_max or lon < lon_min or lon > lon_max:
+                continue
+            if point_in_poly(lat, lon, pts):
+                return height
+        return None
+
+    def avoid(self, vn, ve, dt):
+        if self.inside_building(self.lat, self.lon, self.alt) is not None:
+            return vn, ve
+        nlat = self.lat + vn * dt / M_PER_DEG
+        nlon = self.lon + ve * dt / (M_PER_DEG * math.cos(math.radians(self.lat)))
+        if self.inside_building(nlat, nlon, self.alt) is None:
+            return vn, ve
+        if time.time() - self.last_warn > 3:
+            self.last_warn = time.time()
+            self.say("Obstacle ahead, stopped")
+        return 0.0, 0.0
 
     def say(self, text):
         self.mav.statustext_send(mav2.MAV_SEVERITY_INFO, text.encode())
@@ -276,6 +348,8 @@ class Sim:
         vn = ve = vu = yaw_rate = 0.0
         if self.armed:
             vn, ve, vu, yaw_rate = self.control()
+            if self.buildings and (vn or ve):
+                vn, ve = self.avoid(vn, ve, dt)
             self.battery = max(0.0, self.battery - dt * 100.0 / 1200.0)
         self.heading = (self.heading + yaw_rate * dt) % 360
         self.lat += vn * dt / M_PER_DEG
@@ -339,14 +413,15 @@ class Sim:
     def run(self):
         print("Bundled simulator running, sending MAVLink to " + TARGET, flush=True)
         last = time.time()
-        timers = {"hb": 0.0, "pos": 0.0, "hud": 0.0, "sys": 0.0, "gps": 0.0}
-        rates = {"hb": 1.0, "pos": 0.1, "hud": 0.25, "sys": 0.5, "gps": 0.5}
+        timers = {"hb": 0.0, "pos": 0.0, "hud": 0.0, "sys": 0.0, "gps": 0.0, "bld": 0.0}
+        rates = {"hb": 1.0, "pos": 0.1, "hud": 0.25, "sys": 0.5, "gps": 0.5, "bld": 1.0}
         senders = {
             "hb": self.send_heartbeat,
             "pos": self.send_position,
             "hud": self.send_hud,
             "sys": self.send_sys,
             "gps": self.send_gps,
+            "bld": self.load_buildings,
         }
         while True:
             now = time.time()

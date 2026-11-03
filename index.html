@@ -49,6 +49,8 @@ label { color:var(--dim); font-size:12px; }
 #realform .f { display:grid; grid-template-columns:90px 1fr; gap:6px; margin-bottom:8px; align-items:center; }
 #realform input, #realform select { width:100%; }
 #startstatus { color:var(--warn); margin-top:10px; min-height:18px; }
+#bstat { color:var(--dim); font-size:12px; }
+#bwarn { color:#ff6b6b; font-size:12px; line-height:1.4; }
 #settings { display:inline-flex; align-items:center; padding:7px 9px; }
 #settingsModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:3000; align-items:center; justify-content:center; }
 #settingsBox { width:min(620px,94vw); max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
@@ -132,6 +134,11 @@ label { color:var(--dim); font-size:12px; }
     <div class="row">
       <label><input type="checkbox" id="reverse"> after the last waypoint, fly back through them in reverse</label>
     </div>
+    <div class="row">
+      <label><input type="checkbox" id="bld"> show real buildings (OpenStreetMap)</label>
+      <span id="bstat"></span>
+    </div>
+    <div id="bwarn"></div>
     <div class="row">
       <button id="manual">Manual: OFF</button>
       <label id="lblSpeed">Speed (m/s)</label><input type="number" id="speed" value="3" min="1" max="8" step="0.5">
@@ -225,12 +232,13 @@ function applyUnits(convert) {
   $("speed").max = imperial ? 18 : 8;
   $("speed").step = imperial ? 1 : 0.5;
   $("units").textContent = imperial ? "Imperial" : "Metric";
+  checkMission();
   send({ cmd: "units", imperial: imperial });
 }
 
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "OpenStreetMap" });
 const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Esri" });
-const map = L.map("map", { layers: [sat] }).setView([20, 0], 2);
+const map = L.map("map", { layers: [sat], preferCanvas: true }).setView([20, 0], 2);
 L.control.layers({ Satellite: sat, Streets: osm }).addTo(map);
 
 function toast(text) {
@@ -253,6 +261,7 @@ function redraw() {
   if (poly) poly.remove();
   poly = L.polyline(wps, { color: "#ff9800", weight: 3 }).addTo(map);
   $("wpcount").textContent = wps.length;
+  checkMission();
 }
 
 map.on("click", e => { wps.push([e.latlng.lat, e.latlng.lng]); redraw(); });
@@ -453,6 +462,8 @@ function missionToggle() {
   if (missionActive && curMode === "LOITER") return send({ cmd: "mode", mode: "AUTO" });
   if (Date.now() < startingUntil) return;
   if (!wps.length) return toast("click the map to add waypoints first");
+  const hits = checkMission();
+  if (hits.length && !confirm("The path may hit " + hits.length + " building" + (hits.length > 1 ? "s" : "") + ". Start anyway?")) return;
   missionActive = true;
   startingUntil = Date.now() + 30000;
   send({ cmd: "mission", waypoints: wps, reverse: $("reverse").checked, alt: toM(parseFloat($("malt").value)) || 20 });
@@ -825,8 +836,179 @@ setInterval(() => {
   send({ cmd: "control", fwd: fwd, right: right, up: up, yaw: yaw });
 }, 100);
 
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const ROOF_MARGIN = 5;
+const BLD_ATTR = "Buildings: OpenStreetMap contributors";
+const bldLayer = L.layerGroup();
+const bldCache = new Map();
+let bldOn = false;
+let bldBusy = false;
+let bldTimer = null;
+
+function bldHeight(tags) {
+  const raw = tags.height || tags["building:height"];
+  if (raw) {
+    const v = parseFloat(raw);
+    if (!isNaN(v)) return { h: /'|ft|feet/.test(String(raw)) ? v / FT : v, est: false };
+  }
+  const levels = parseFloat(tags["building:levels"]);
+  if (!isNaN(levels)) return { h: levels * 3.2 + 1, est: true };
+  return { h: 9, est: true };
+}
+
+function fmtLen(m) {
+  return imperial ? Math.round(m * FT) + " ft" : Math.round(m) + " m";
+}
+
+async function fetchBuildings(b) {
+  const q = '[out:json][timeout:25];way["building"](' + b.getSouth() + "," + b.getWest() + "," + b.getNorth() + "," + b.getEast() + ");out tags geom;";
+  let lastErr = null;
+  for (const url of OVERPASS) {
+    try {
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "data=" + encodeURIComponent(q) });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+function drawBuildings() {
+  bldLayer.clearLayers();
+  bldCache.forEach(b => {
+    const col = b.h >= 25 ? "#e5484d" : b.h >= 12 ? "#ff9800" : "#3d9bff";
+    L.polygon(b.pts, { color: col, weight: 1, fillOpacity: 0.3 })
+      .bindTooltip((b.est ? "about " : "") + fmtLen(b.h) + (b.est ? " (estimated)" : ""))
+      .addTo(bldLayer);
+  });
+  $("bstat").textContent = bldCache.size + " buildings";
+}
+
+function postBuildings() {
+  const list = [];
+  if (bldOn) {
+    bldCache.forEach(b => {
+      const flat = [];
+      b.pts.forEach(p => { flat.push(Math.round(p[0] * 1e6) / 1e6, Math.round(p[1] * 1e6) / 1e6); });
+      list.push([Math.round(b.h * 10) / 10, flat]);
+    });
+  }
+  fetch("/buildings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(list) }).catch(() => {});
+}
+
+async function loadBuildings() {
+  if (!bldOn || bldBusy) return;
+  if (map.getZoom() < 16) {
+    $("bstat").textContent = "zoom in to load buildings";
+    return;
+  }
+  bldBusy = true;
+  $("bstat").textContent = "loading buildings ...";
+  try {
+    const data = await fetchBuildings(map.getBounds());
+    (data.elements || []).forEach(el => {
+      if (el.type !== "way" || !el.geometry || el.geometry.length < 4 || bldCache.has(el.id) || bldCache.size >= 4000) return;
+      const hh = bldHeight(el.tags || {});
+      bldCache.set(el.id, { h: hh.h, est: hh.est, pts: el.geometry.map(g => [g.lat, g.lon]) });
+    });
+    drawBuildings();
+    postBuildings();
+    checkMission();
+  } catch (e) {
+    $("bstat").textContent = "buildings failed: " + e.message;
+  }
+  bldBusy = false;
+}
+
+function pointInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function segCross(a, b, c, d) {
+  const o = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+}
+
+function segHitsPoly(a, b, poly) {
+  if (pointInPoly(a[0], a[1], poly) || pointInPoly(b[0], b[1], poly)) return true;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    if (segCross(a, b, poly[i], poly[j])) return true;
+  }
+  return false;
+}
+
+function checkMission() {
+  const el = $("bwarn");
+  if (!bldOn || wps.length === 0 || bldCache.size === 0) {
+    el.textContent = "";
+    return [];
+  }
+  const alt = toM(parseFloat($("malt").value)) || 20;
+  const start = droneMarker ? [droneMarker.getLatLng().lat, droneMarker.getLatLng().lng] : null;
+  const route = (start ? [start] : []).concat(wps, start ? [start] : []);
+  const lat0 = route[0][0], lon0 = route[0][1];
+  const kx = 111320 * Math.cos(lat0 * Math.PI / 180);
+  const pr = p => [(p[1] - lon0) * kx, (p[0] - lat0) * 111320];
+  const path = route.map(pr);
+  const hits = [];
+  bldCache.forEach(b => {
+    if (b.h + ROOF_MARGIN <= alt) return;
+    const poly = b.pts.map(pr);
+    for (let i = 0; i < path.length - 1; i++) {
+      if (segHitsPoly(path[i], path[i + 1], poly)) {
+        hits.push(b);
+        return;
+      }
+    }
+    if (path.length === 1 && pointInPoly(path[0][0], path[0][1], poly)) hits.push(b);
+  });
+  if (!hits.length) {
+    el.textContent = "";
+    return [];
+  }
+  const tallest = hits.reduce((m, b) => (b.h > m.h ? b : m), hits[0]);
+  el.textContent = "Warning: the path crosses " + hits.length + " building" + (hits.length > 1 ? "s" : "") +
+    " taller than the mission altitude. Tallest: " + (tallest.est ? "about " : "") + fmtLen(tallest.h) +
+    ". Raise the mission altitude to at least " + fmtLen(Math.ceil(tallest.h + ROOF_MARGIN)) + ".";
+  return hits;
+}
+
+$("bld").onchange = () => {
+  bldOn = $("bld").checked;
+  try { localStorage.setItem("dcw_bld", bldOn ? "1" : "0"); } catch (e) {}
+  if (bldOn) {
+    bldLayer.addTo(map);
+    map.attributionControl.addAttribution(BLD_ATTR);
+    loadBuildings();
+  } else {
+    bldLayer.remove();
+    map.attributionControl.removeAttribution(BLD_ATTR);
+    $("bstat").textContent = "";
+    $("bwarn").textContent = "";
+  }
+  postBuildings();
+};
+$("malt").addEventListener("input", checkMission);
+map.on("moveend", () => {
+  clearTimeout(bldTimer);
+  if (bldOn) bldTimer = setTimeout(loadBuildings, 700);
+});
+
 loadCfg();
 loadPad();
+try {
+  if (localStorage.getItem("dcw_bld") === "1") {
+    $("bld").checked = true;
+    $("bld").onchange();
+  }
+} catch (e) {}
 try { imperial = localStorage.getItem("dcw_units") === "imperial"; } catch (e) {}
 if (imperial) applyUnits(true);
 openWs();

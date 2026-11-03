@@ -3,3 +3,5 @@ venv/
 __pycache__/
 .DS_Store
 sim_location.json
+sim_buildings.json
+sim_buildings.tmp
