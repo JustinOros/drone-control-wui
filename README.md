@@ -50,6 +50,7 @@ Tick **Show real buildings** in the panel and zoom in to level 16 or closer. Bui
 
 - Heights come from the `height` or `building:levels` tags. Buildings with neither are assumed to be 9 m.
 - When your mission path crosses a building taller than the mission altitude, a warning shows the tallest one and the altitude to raise it to, and Start mission asks you to confirm.
+- The SIM camera draws the buildings as simple 3D boxes (walls and roofs) from the drone's position and heading.
 - In the SIM the buildings are solid. Flying into a wall stops the drone with "Obstacle ahead, stopped". Fly higher than the roof to pass over. The SIM does not plan a path around buildings.
 - Terrain is treated as flat, and only building footprints are used (no trees, wires or terrain).
 - Data is OpenStreetMap contributors, licensed ODbL. The attribution shows on the map when buildings are on. Please respect the Overpass fair-use limits. Loaded areas are cached and requests are debounced.

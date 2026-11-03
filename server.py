@@ -322,12 +322,108 @@ class Vehicle:
         self.set_mode("AUTO")
 
 
+_bld_cache = {"mtime": None, "data": []}
+
+
+def sim_buildings():
+    try:
+        m = BUILDINGS_FILE.stat().st_mtime
+    except OSError:
+        _bld_cache["mtime"] = None
+        _bld_cache["data"] = []
+        return _bld_cache["data"]
+    if m != _bld_cache["mtime"]:
+        try:
+            _bld_cache["data"] = json.loads(BUILDINGS_FILE.read_text())
+            _bld_cache["mtime"] = m
+        except (OSError, ValueError):
+            pass
+    return _bld_cache["data"]
+
+
+def draw_buildings(img, st, horizon):
+    lat0, lon0 = st.get("lat"), st.get("lon")
+    if lat0 is None or lon0 is None:
+        return
+    data = sim_buildings()
+    if not data:
+        return
+    alt = st.get("alt") or 0.0
+    hdg = math.radians(st.get("heading") or 0)
+    mlat = 111320.0
+    mlon = 111320.0 * math.cos(math.radians(lat0))
+    sh, ch = math.sin(hdg), math.cos(hdg)
+    focal = 320.0
+    near = 0.5
+    sky = (205, 170, 100)
+    items = []
+    for h, flat in data:
+        pts = []
+        for i in range(0, len(flat) - 1, 2):
+            n = (flat[i] - lat0) * mlat
+            e = (flat[i + 1] - lon0) * mlon
+            pts.append((n * ch + e * sh, -n * sh + e * ch))
+        if len(pts) < 3:
+            continue
+        near_d = min(math.hypot(f, r) for f, r in pts)
+        if near_d > 500:
+            continue
+        area = sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1] for i in range(len(pts)))
+        items.append((near_d, h, pts, area))
+    items.sort(key=lambda it: -it[0])
+
+    def px(x, y):
+        return [int(max(-5000, min(5000, x))), int(max(-5000, min(5000, y)))]
+
+    for dist0, h, pts, area in items:
+        base = (150, 150, 165) if h > 15 else (140, 160, 190)
+        fog = min(1.0, dist0 / 450.0) * 0.5
+
+        def tint(shade):
+            return tuple(int(c * shade * (1 - fog) + bg * fog) for c, bg in zip(base, sky))
+
+        walls = []
+        for i in range(len(pts)):
+            a = pts[i]
+            b = pts[(i + 1) % len(pts)]
+            ex, ey = b[0] - a[0], b[1] - a[1]
+            cross = ex * (0 - a[1]) - ey * (0 - a[0])
+            if cross * area > 0:
+                continue
+            if a[0] < near and b[0] < near:
+                continue
+            if a[0] < near:
+                t = (near - a[0]) / (b[0] - a[0])
+                a = (near, a[1] + t * (b[1] - a[1]))
+            elif b[0] < near:
+                t = (near - b[0]) / (a[0] - b[0])
+                b = (near, b[1] + t * (a[1] - b[1]))
+            shade = 0.55 + 0.45 * abs(b[1] - a[1]) / (math.hypot(b[1] - a[1], b[0] - a[0]) + 1e-6)
+            walls.append(((a[0] + b[0]) / 2, shade, a, b))
+        walls.sort(key=lambda w: -w[0])
+        for _, shade, a, b in walls:
+            q = [
+                px(320 + focal * a[1] / a[0], horizon - focal * (h - alt) / a[0]),
+                px(320 + focal * b[1] / b[0], horizon - focal * (h - alt) / b[0]),
+                px(320 + focal * b[1] / b[0], horizon + focal * alt / b[0]),
+                px(320 + focal * a[1] / a[0], horizon + focal * alt / a[0]),
+            ]
+            poly = np.array(q, np.int32)
+            cv2.fillPoly(img, [poly], tint(shade))
+            cv2.polylines(img, [poly], True, (40, 40, 50), 1)
+        if alt > h and all(f >= near for f, r in pts):
+            roof = np.array([px(320 + focal * r / f, horizon - focal * (h - alt) / f) for f, r in pts], np.int32)
+            cv2.fillPoly(img, [roof], tint(1.0))
+            cv2.polylines(img, [roof], True, (40, 40, 50), 1)
+
+
 def sim_frame(t, st):
     img = np.zeros((360, 640, 3), np.uint8)
     horizon = int(180 + 20 * math.sin(t / 2))
     img[:horizon] = (205, 170, 100)
     img[horizon:] = (70, 130, 70)
     cv2.line(img, (0, horizon), (640, horizon), (255, 255, 255), 1)
+    draw_buildings(img, st, horizon)
     cv2.putText(img, "SIM CAMERA", (16, 32), FONT, 0.8, (255, 255, 255), 2)
     cv2.putText(img, time.strftime("%I:%M:%S %p"), (500, 32), FONT, 0.6, (255, 255, 255), 1)
     alt = st.get("alt") or 0.0
