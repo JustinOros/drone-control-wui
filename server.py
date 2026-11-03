@@ -75,6 +75,7 @@ class Vehicle:
         self.lock = threading.RLock()
         self.link = None
         self.gen = 0
+        self.mode_gen = 0
         self.state = self.blank()
 
     @staticmethod
@@ -316,10 +317,13 @@ class Vehicle:
     def run_mission(self, wps, alt, rth=True):
         if not wps:
             raise RuntimeError("no waypoints")
+        gen = self.mode_gen
         self.upload_mission(wps, alt, rth)
         self.set_mode("GUIDED")
         time.sleep(0.5)
         self.arm_and_wait()
+        if self.mode_gen != gen:
+            raise RuntimeError("mission start cancelled, flight mode was changed")
         self.set_mode("AUTO")
 
 
@@ -744,18 +748,22 @@ async def handle(msg):
         await asyncio.to_thread(vehicle.arm)
         return {"type": "ok", "message": "arm sent"}
     if cmd == "disarm":
+        vehicle.mode_gen += 1
         await asyncio.to_thread(vehicle.disarm)
         return {"type": "ok", "message": "disarm sent"}
     if cmd == "takeoff":
         await asyncio.to_thread(vehicle.takeoff, msg.get("alt", 10))
         return {"type": "ok", "message": "takeoff sent"}
     if cmd == "land":
+        vehicle.mode_gen += 1
         await asyncio.to_thread(vehicle.set_mode, "LAND")
         return {"type": "ok", "message": "landing"}
     if cmd == "rtl":
+        vehicle.mode_gen += 1
         await asyncio.to_thread(vehicle.set_mode, "RTL")
         return {"type": "ok", "message": "returning to launch"}
     if cmd == "mode":
+        vehicle.mode_gen += 1
         await asyncio.to_thread(vehicle.set_mode, msg.get("mode", "GUIDED"))
         return {"type": "ok", "message": "mode " + msg.get("mode", "GUIDED")}
     if cmd == "mission":

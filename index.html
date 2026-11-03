@@ -218,6 +218,7 @@ const keys = new Set();
 const wps = [];
 let ws = null;
 let manual = false;
+let resumable = false;
 let recording = false;
 let wpMarkers = [];
 let poly = null;
@@ -403,11 +404,13 @@ function telemetry(m) {
   } else if (!starting && (!d.armed || d.mode !== "LOITER")) {
     missionActive = false;
   }
+  if (!d.armed || d.mode === "RTL" || d.mode === "LAND") resumable = false;
   let label = "Start mission";
   if (d.mode === "AUTO") label = "Pause";
   else if (((d.mode === "LAND" || d.mode === "RTL") && d.armed) || climbing) label = "Hold";
   else if (holding && d.mode === "LOITER") label = "Holding";
   else if (missionActive && d.mode === "LOITER") label = "Play";
+  else if (resumable && d.mode === "GUIDED") label = "Resume";
   else if (starting) label = "Starting ...";
   $("mission").textContent = label;
   $("mission").className = label === "Pause" ? "" : "go";
@@ -477,10 +480,11 @@ $("units").onclick = () => {
 };
 $("land").onclick = () => send({ cmd: "land" });
 $("rtl").onclick = () => send({ cmd: "rtl" });
-$("clear").onclick = () => { wps.length = 0; redraw(); };
+$("clear").onclick = () => { wps.length = 0; resumable = false; redraw(); };
 $("photo").onclick = () => send({ cmd: "photo" });
 $("record").onclick = () => send({ cmd: "record", on: !recording });
 function haltAction() {
+  resumable = false;
   pendingManual = null;
   climbing = null;
   missionActive = false;
@@ -497,12 +501,19 @@ function missionToggle() {
   if (curMode === "AUTO") return send({ cmd: "mode", mode: "LOITER" });
   const busy = ((curMode === "LAND" || curMode === "RTL") && curArmed) || climbing || Date.now() < startingUntil;
   if (busy) return haltAction();
+  if (resumable && curMode === "GUIDED") {
+    resumable = false;
+    startingUntil = 0;
+    setManual(false);
+    return send({ cmd: "mode", mode: "AUTO" });
+  }
   if (holding && curMode === "LOITER") return toast("holding position, use Manual, Takeoff, Land or RTL to continue");
   if (missionActive && curMode === "LOITER") return send({ cmd: "mode", mode: "AUTO" });
   if (Date.now() < startingUntil) return;
   if (!wps.length) return toast("click the map to add waypoints first");
   const hits = checkMission();
   if (hits.length && !confirm("The path may hit " + hits.length + " building" + (hits.length > 1 ? "s" : "") + ". Start anyway?")) return;
+  resumable = false;
   missionActive = true;
   startingUntil = Date.now() + 30000;
   const plan = lastPlan || { route: wps, alt: toM(parseFloat($("malt").value)) || 20 };
@@ -513,6 +524,7 @@ $("mission").onclick = missionToggle;
 
 function setManual(on) {
   manual = on;
+  if (on && (curMode === "AUTO" || (missionActive && curMode === "LOITER"))) resumable = true;
   $("manual").textContent = "Manual: " + (on ? "ON" : "OFF");
   $("manual").classList.toggle("on", on);
   if (on) send({ cmd: "mode", mode: "GUIDED" });
