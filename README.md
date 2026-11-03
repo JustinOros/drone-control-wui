@@ -8,6 +8,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - Click-to-add waypoints on a satellite or street map, one click to launch the mission
 - Live drone position, heading, altitude, speed, battery, GPS and flight mode
 - Live camera view next to the map, with Popout (own window) and Fullscreen buttons (double-click the video also toggles fullscreen)
+- Swap button at the top of the main view: **Show camera** makes the camera the main view and shrinks the map into the camera slot in the side panel (it stays pinned while you scroll, and you can still click it to add waypoints). **Show map** swaps back. The choice is remembered in your browser
 - One button to Start, Pause and Play the mission, also on the Xbox Start button
 - Manual flight: W/S forward and back, A/D strafe, Q/E yaw, Space up, Left Shift down
 - Xbox (or any standard) controller through the browser Gamepad API, laid out like a standard RC controller: sticks, takeoff, land, return to launch, mission pause and play, speed, photo and video
