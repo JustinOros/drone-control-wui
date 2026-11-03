@@ -10,7 +10,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - Live camera view next to the map, with Popout (own window) and Fullscreen buttons (double-click the video also toggles fullscreen)
 - Swap button at the top of the main view: **Show camera** makes the camera the main view and shrinks the map into the camera slot in the side panel (it stays pinned while you scroll, and you can still click it to add waypoints). **Show map** swaps back. The choice is remembered in your browser
 - One button to Start, Pause and Play the mission, also on the Xbox Start button
-- Manual flight: W/S forward and back, A/D strafe, Q/E yaw, Space up, Left Shift down
+- Manual flight: W/S forward and back, A/D turn left and right, Q/E strafe sideways, Space up, Left Shift down
 - Xbox (or any standard) controller through the browser Gamepad API, laid out like a standard RC controller: sticks, takeoff, land, return to launch, mission pause and play, speed, photo and video
 - Take Picture and Start/Stop Recording, saved to `captures/`
 - Takeoff, Land, Return to Launch, Arm, Disarm
@@ -129,8 +129,8 @@ A typical build is about $250 to $450:
 | Input | Action |
 |-------|--------|
 | W / S | Forward / back |
-| A / D | Strafe left / right |
-| Q / E | Yaw left / right |
+| A / D | Turn (yaw) left / right |
+| Q / E | Strafe left / right |
 | Space | Up |
 | Left Shift | Down |
 | Xbox left stick up / down | Climb / descend |

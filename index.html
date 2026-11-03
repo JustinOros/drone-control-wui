@@ -183,7 +183,7 @@ label { color:var(--dim); font-size:12px; }
     <div id="toast"></div>
     <div id="hint">
       Click the map to add waypoints, click a waypoint to remove it.<br>
-      Manual mode: W/S forward and back, A/D strafe, Q/E yaw, Space up, Left Shift down.<br>
+      Manual mode: W/S forward and back, A/D turn left and right, Q/E strafe sideways, Space up, Left Shift down.<br>
       Xbox (default layout, change it with the gear icon): left stick climb, descend and yaw, right stick move. Y takeoff, X land, Back return to launch, Start pause or play the mission, L3 manual on or off, LB/RB speed, A picture, B record.
     </div>
   </div>
@@ -846,12 +846,12 @@ setInterval(() => {
   let fwd = 0, right = 0, up = 0, yaw = 0;
   if (keys.has("KeyW")) fwd += sp;
   if (keys.has("KeyS")) fwd -= sp;
-  if (keys.has("KeyD")) right += sp;
-  if (keys.has("KeyA")) right -= sp;
+  if (keys.has("KeyE")) right += sp;
+  if (keys.has("KeyQ")) right -= sp;
   if (keys.has("Space")) up += sp / 2;
   if (keys.has("ShiftLeft")) up -= sp / 2;
-  if (keys.has("KeyE")) yaw += 45;
-  if (keys.has("KeyQ")) yaw -= 45;
+  if (keys.has("KeyD")) yaw += 45;
+  if (keys.has("KeyA")) yaw -= 45;
   if (pad) {
     fwd += pad.fwd * sp;
     right += pad.right * sp;
