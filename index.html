@@ -137,6 +137,7 @@ label { color:var(--dim); font-size:12px; }
     <div class="row">
       <label><input type="checkbox" id="bld"> show real buildings (OpenStreetMap)</label>
       <span id="bstat"></span>
+      <button id="bclear" title="Forget saved buildings and reload them">Clear cache</button>
     </div>
     <div class="row">
       <label for="avoid">Building in the way</label>
@@ -907,28 +908,123 @@ function postBuildings() {
   fetch("/buildings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(list) }).catch(() => {});
 }
 
+const TILE = 0.01;
+const TILE_TTL = 30 * 86400000;
+const tilesDone = new Set();
+let bldAgain = false;
+let idbPromise = null;
+
+function idb() {
+  if (!idbPromise) {
+    idbPromise = new Promise(res => {
+      try {
+        const r = indexedDB.open("dcw_bld", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("tiles");
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+      } catch (e) {
+        res(null);
+      }
+    });
+  }
+  return idbPromise;
+}
+
+async function idbGet(key) {
+  const db = await idb();
+  if (!db) return null;
+  return new Promise(res => {
+    try {
+      const r = db.transaction("tiles").objectStore("tiles").get(key);
+      r.onsuccess = () => res(r.result || null);
+      r.onerror = () => res(null);
+    } catch (e) {
+      res(null);
+    }
+  });
+}
+
+async function idbPut(key, val) {
+  const db = await idb();
+  if (!db) return;
+  try { db.transaction("tiles", "readwrite").objectStore("tiles").put(val, key); } catch (e) {}
+}
+
+async function idbClear() {
+  const db = await idb();
+  if (!db) return;
+  try { db.transaction("tiles", "readwrite").objectStore("tiles").clear(); } catch (e) {}
+}
+
+function addTileItems(items) {
+  items.forEach(it => {
+    if (bldCache.has(it[0]) || bldCache.size >= 4000) return;
+    bldCache.set(it[0], { h: it[1], est: it[2], pts: it[3] });
+  });
+}
+
 async function loadBuildings() {
-  if (!bldOn || bldBusy) return;
+  if (!bldOn) return;
+  if (bldBusy) {
+    bldAgain = true;
+    return;
+  }
   if (map.getZoom() < 16) {
     $("bstat").textContent = "zoom in to load buildings";
     return;
   }
   bldBusy = true;
-  $("bstat").textContent = "loading buildings ...";
-  try {
-    const data = await fetchBuildings(map.getBounds());
-    (data.elements || []).forEach(el => {
-      if (el.type !== "way" || !el.geometry || el.geometry.length < 4 || bldCache.has(el.id) || bldCache.size >= 4000) return;
-      const hh = bldHeight(el.tags || {});
-      bldCache.set(el.id, { h: hh.h, est: hh.est, pts: el.geometry.map(g => [g.lat, g.lon]) });
-    });
-    drawBuildings();
+  const bd = map.getBounds();
+  const todo = [];
+  for (let ty = Math.floor(bd.getSouth() / TILE); ty <= Math.floor(bd.getNorth() / TILE); ty++) {
+    for (let tx = Math.floor(bd.getWest() / TILE); tx <= Math.floor(bd.getEast() / TILE); tx++) {
+      const key = tx + "_" + ty;
+      if (!tilesDone.has(key)) todo.push([key, tx, ty]);
+    }
+  }
+  let fromNet = 0;
+  let fromCache = 0;
+  let failed = null;
+  for (const [key, tx, ty] of todo.slice(0, 12)) {
+    const saved = await idbGet(key);
+    if (saved && Date.now() - saved.t < TILE_TTL) {
+      addTileItems(saved.items);
+      tilesDone.add(key);
+      fromCache++;
+      continue;
+    }
+    $("bstat").textContent = "loading buildings ...";
+    try {
+      const box = L.latLngBounds([ty * TILE, tx * TILE], [(ty + 1) * TILE, (tx + 1) * TILE]);
+      const data = await fetchBuildings(box);
+      const items = [];
+      (data.elements || []).forEach(el => {
+        if (el.type !== "way" || !el.geometry || el.geometry.length < 4) return;
+        const hh = bldHeight(el.tags || {});
+        items.push([el.id, hh.h, hh.est, el.geometry.map(g => [g.lat, g.lon])]);
+      });
+      addTileItems(items);
+      idbPut(key, { t: Date.now(), items });
+      tilesDone.add(key);
+      fromNet++;
+    } catch (e) {
+      failed = e;
+      break;
+    }
+  }
+  drawBuildings();
+  if (fromNet || fromCache) {
     postBuildings();
     checkMission();
-  } catch (e) {
-    $("bstat").textContent = "buildings failed: " + e.message;
   }
+  if (failed) $("bstat").textContent = "buildings failed: " + failed.message;
+  else if (todo.length > 12) $("bstat").textContent = bldCache.size + " buildings, zoom in or pan to load more";
+  else if (fromCache && !fromNet) $("bstat").textContent = bldCache.size + " buildings (cached)";
   bldBusy = false;
+  if (bldAgain && !failed) {
+    bldAgain = false;
+    loadBuildings();
+  }
 }
 
 function pointInPoly(x, y, poly) {
@@ -1145,6 +1241,15 @@ $("bld").onchange = () => {
 };
 $("malt").addEventListener("input", checkMission);
 $("avoid").addEventListener("change", checkMission);
+$("bclear").onclick = async () => {
+  await idbClear();
+  tilesDone.clear();
+  bldCache.clear();
+  bldLayer.clearLayers();
+  $("bstat").textContent = "cache cleared";
+  postBuildings();
+  loadBuildings();
+};
 map.on("moveend", () => {
   clearTimeout(bldTimer);
   if (bldOn) bldTimer = setTimeout(loadBuildings, 700);
@@ -1152,12 +1257,21 @@ map.on("moveend", () => {
 
 loadCfg();
 loadPad();
-try {
-  if (localStorage.getItem("dcw_bld") === "1") {
-    $("bld").checked = true;
-    $("bld").onchange();
-  }
-} catch (e) {}
+(async () => {
+  try {
+    const f = await (await fetch("/cacheflag")).json();
+    if (f.clear && localStorage.getItem("dcw_cleared") !== f.id) {
+      await idbClear();
+      localStorage.setItem("dcw_cleared", f.id);
+    }
+  } catch (e) {}
+  try {
+    if (localStorage.getItem("dcw_bld") === "1") {
+      $("bld").checked = true;
+      $("bld").onchange();
+    }
+  } catch (e) {}
+})();
 try { imperial = localStorage.getItem("dcw_units") === "imperial"; } catch (e) {}
 if (imperial) applyUnits(true);
 openWs();

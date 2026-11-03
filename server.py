@@ -583,6 +583,15 @@ def index():
     return FileResponse(BASE / "index.html")
 
 
+CLEAR_CACHE = "--clear-cache" in sys.argv
+STARTUP_ID = str(time.time())
+
+
+@app.get("/cacheflag")
+def cacheflag():
+    return {"clear": CLEAR_CACHE, "id": STARTUP_ID}
+
+
 @app.get("/popout")
 def popout():
     return FileResponse(BASE / "popout.html")

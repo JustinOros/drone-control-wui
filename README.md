@@ -59,6 +59,7 @@ Tick **Show real buildings** in the panel and zoom in to level 16 or closer. Bui
 - In the SIM the buildings are solid. Flying into a wall stops the drone with "Obstacle ahead, stopped". Fly higher than the roof to pass over. The SIM does not plan a path around buildings.
 - Terrain is treated as flat, and only building footprints are used (no trees, wires or terrain).
 - Data is OpenStreetMap contributors, licensed ODbL. The attribution shows on the map when buildings are on. Please respect the Overpass fair-use limits. Loaded areas are cached and requests are debounced.
+- Loaded areas are cached in your browser (about 1 km tiles, kept for 30 days), so reloading the page or restarting the server does not fetch them again. Click **Clear cache** next to the buildings checkbox, or start the server with `python3 server.py --clear-cache`, to forget them and reload fresh data.
 - The footprints are handed to the simulator through `sim_buildings.json`, which is git-ignored and recreated on each start.
 
 If a real ArduPilot SITL is already sending MAVLink to UDP port 14550, the SIM button connects to that instead and the bundled simulator is not started:
