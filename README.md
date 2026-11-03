@@ -19,7 +19,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - Reset the SIM drone to your real GPS location with one button
 - Return home after the last waypoint is on by default. Untick it and the drone hovers at the last waypoint instead (use Land, Return to launch or Manual from there)
 - Save, load and delete named routes (waypoints plus altitude, reverse, return home and building settings), stored in `routes.json` next to the server and git-ignored. Load a route, then press Start mission
-- Optional reverse leg: after the last waypoint, fly back through the waypoints in reverse, then return to launch
+- Optional reverse leg: after the last waypoint, fly back through the waypoints in reverse, then return to launch. You can tick or untick it while a mission is flying, or after it has finished hovering at the last waypoint, and the drone carries on accordingly
 - Metric / Imperial toggle for altitude and speed (remembered in your browser)
 - WiFi link for close range, 4G LTE link for long range, selectable at connect time
 - Real-world buildings from OpenStreetMap (free), drawn on the map, warned about in mission planning, and solid in the SIM
@@ -91,6 +91,7 @@ Settings are remembered in your browser.
 
 ### Safety
 
+- Manual speed is capped at 40 mph (18 m/s) in the page and in the server.
 - Steering (forward, back, strafe and yaw) is locked while the altitude reads under 0.5 m, in the page and in the server. You can still climb from the ground.
 - Return to launch goes back to the spot where the drone was last armed, so if you relaunch from a new spot, that spot becomes home.
 - Configure return-to-launch on link loss, low battery and GPS loss in ArduPilot before the first flight.

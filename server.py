@@ -56,7 +56,7 @@ CAPTURES.mkdir(exist_ok=True)
 SIM_CONNECTION = "udpin:0.0.0.0:14550"
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 MAX_ALT = 120.0
-MAX_SPEED = 8.0
+MAX_SPEED = 18.0
 MAX_YAW = 90.0
 GROUND_ALT = 0.5
 prefs = {"imperial": False}
@@ -273,13 +273,14 @@ class Vehicle:
                 0, math.radians(yaw),
             )
 
-    def upload_mission(self, wps, alt, rth=True):
+    def upload_mission(self, wps, alt, rth=True, takeoff=True):
         self.need()
         alt = clamp(alt, 2, MAX_ALT)
         home_lat = self.state["lat"] if self.state["lat"] is not None else wps[0][0]
         home_lon = self.state["lon"] if self.state["lon"] is not None else wps[0][1]
         items = [(0, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, home_lat, home_lon, 0.0)]
-        items.append((6, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0.0, 0.0, alt))
+        if takeoff:
+            items.append((6, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0.0, 0.0, alt))
         for lat, lon in wps:
             items.append((6, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, lat, lon, alt))
         if rth:
@@ -313,6 +314,19 @@ class Vehicle:
                     int(lat * 1e7), int(lon * 1e7), z,
                 )
         raise RuntimeError("mission upload timed out")
+
+    def update_mission(self, wps, alt, rth=True):
+        if not wps:
+            raise RuntimeError("no waypoints")
+        self.set_mode("LOITER")
+        time.sleep(0.4)
+        self.upload_mission(wps, alt, rth, takeoff=False)
+        ts = self.link.target_system
+        tc = self.link.target_component
+        with self.lock:
+            self.link.mav.mission_set_current_send(ts, tc, 1)
+        time.sleep(0.3)
+        self.set_mode("AUTO")
 
     def run_mission(self, wps, alt, rth=True):
         if not wps:
@@ -779,6 +793,12 @@ async def handle(msg):
         if not rth:
             text += ", it will hover at the last waypoint"
         return {"type": "ok", "message": text}
+    if cmd == "mission_update":
+        wps = [(float(p[0]), float(p[1])) for p in msg.get("waypoints", [])]
+        rth = bool(msg.get("rth", True))
+        vehicle.mode_gen += 1
+        await asyncio.to_thread(vehicle.update_mission, wps, msg.get("alt", 20), rth)
+        return {"type": "ok", "message": "mission updated, {} waypoints left".format(len(wps))}
     if cmd == "photo":
         name = video.photo()
         if not name:

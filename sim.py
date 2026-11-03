@@ -254,6 +254,10 @@ class Sim:
             self.mav.mission_ack_send(
                 m.get_srcSystem(), m.get_srcComponent(), mav2.MAV_MISSION_ACCEPTED
             )
+        elif t == "MISSION_SET_CURRENT":
+            self.seq = int(m.seq)
+            self.done_said = False
+            self.send_current()
         elif t == "MISSION_COUNT":
             self.on_mission_count(m)
         elif t in ("MISSION_ITEM_INT", "MISSION_ITEM"):

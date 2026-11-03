@@ -180,7 +180,7 @@ label { color:var(--dim); font-size:12px; }
     <div id="bwarn"></div>
     <div class="row">
       <button id="manual">Manual: OFF</button>
-      <label id="lblSpeed">Speed (m/s)</label><input type="number" id="speed" value="3" min="1" max="8" step="0.5">
+      <label id="lblSpeed">Speed (m/s)</label><input type="number" id="speed" value="3" min="1" max="18" step="0.5">
     </div>
     <div class="row" id="simrow">
       <button id="simloc">Reset SIM to my GPS</button>
@@ -222,6 +222,8 @@ const wps = [];
 let ws = null;
 let manual = false;
 let resumable = false;
+let sent = null;
+let curWp = 0;
 let recording = false;
 let wpMarkers = [];
 let poly = null;
@@ -271,7 +273,7 @@ function applyUnits(convert) {
   $("malt").min = imperial ? 7 : 2;
   $("malt").max = imperial ? 394 : 120;
   $("speed").min = imperial ? 2 : 1;
-  $("speed").max = imperial ? 18 : 8;
+  $("speed").max = imperial ? 40 : 18;
   $("speed").step = imperial ? 1 : 0.5;
   $("units").textContent = imperial ? "Imperial" : "Metric";
   checkMission();
@@ -383,6 +385,7 @@ function telemetry(m) {
   curArmed = d.armed;
   curAlt = d.alt;
   curHdg = d.heading || 0;
+  curWp = d.wp || 0;
   if (climbing) {
     const over = Date.now() > climbing.until;
     const stalled = !d.armed && Date.now() > climbing.until - 30000;
@@ -408,6 +411,10 @@ function telemetry(m) {
     missionActive = false;
   }
   if (!d.armed || d.mode === "RTL" || d.mode === "LAND") resumable = false;
+  if (sent) {
+    if (d.armed) sent.seen = true;
+    else if (sent.seen) sent = null;
+  }
   let label = "Start mission";
   if (d.mode === "AUTO") label = "Pause";
   else if (((d.mode === "LAND" || d.mode === "RTL") && d.armed) || climbing) label = "Hold";
@@ -483,11 +490,12 @@ $("units").onclick = () => {
 };
 $("land").onclick = () => send({ cmd: "land" });
 $("rtl").onclick = () => send({ cmd: "rtl" });
-$("clear").onclick = () => { wps.length = 0; resumable = false; redraw(); };
+$("clear").onclick = () => { wps.length = 0; resumable = false; sent = null; redraw(); };
 $("photo").onclick = () => send({ cmd: "photo" });
 $("record").onclick = () => send({ cmd: "record", on: !recording });
 function haltAction() {
   resumable = false;
+  sent = null;
   pendingManual = null;
   climbing = null;
   missionActive = false;
@@ -520,6 +528,7 @@ function missionToggle() {
   missionActive = true;
   startingUntil = Date.now() + 30000;
   const plan = lastPlan || { route: wps, alt: toM(parseFloat($("malt").value)) || 20 };
+  sent = { fwd: plan.route.slice(), alt: plan.alt, rth: $("rth").checked, reverse: $("reverse").checked, base: 0, offset: 2 };
   send({ cmd: "mission", waypoints: plan.route, reverse: $("reverse").checked, rth: $("rth").checked, alt: plan.alt });
 }
 
@@ -599,7 +608,7 @@ function bumpSpeed(dir) {
   const el = $("speed");
   const step = imperial ? 1 : 0.5;
   const lo = imperial ? 2 : 1;
-  const hi = imperial ? 18 : 8;
+  const hi = imperial ? 40 : 18;
   const v = Math.min(hi, Math.max(lo, (parseFloat(el.value) || lo) + dir * step));
   el.value = v;
   toast("speed " + v + (imperial ? " mph" : " m/s"));
@@ -1475,6 +1484,30 @@ window.addEventListener("resize", placeMap);
 $("panel").addEventListener("scroll", placeMap);
 if (window.ResizeObserver) new ResizeObserver(placeMap).observe($("camslot"));
 try { if (localStorage.getItem("dcw_view") === "cam") setView(true); } catch (e) {}
+
+function combined(fwd, rev) {
+  return rev && fwd.length > 1 ? fwd.concat(fwd.slice(0, -1).reverse()) : fwd.slice();
+}
+
+$("reverse").addEventListener("change", () => {
+  if (!sent) return;
+  const rev = $("reverse").checked;
+  if (curMode === "RTL" || curMode === "LAND") {
+    $("reverse").checked = sent.reverse;
+    return toast("already returning home or landing, the reverse leg cannot be changed now");
+  }
+  if (curMode !== "AUTO" || !curArmed) return toast("the reverse setting will apply the next time you start a mission");
+  const oldList = combined(sent.fwd, sent.reverse);
+  const newList = combined(sent.fwd, rev);
+  const a = Math.max(0, Math.min(oldList.length, sent.base + curWp - sent.offset));
+  const remaining = newList.slice(Math.min(a, newList.length));
+  if (!remaining.length) return toast("no waypoints left to fly");
+  sent.reverse = rev;
+  sent.base = a;
+  sent.offset = 1;
+  send({ cmd: "mission_update", waypoints: remaining, rth: sent.rth, alt: sent.alt });
+  toast(rev ? "reverse leg added to the running mission" : "reverse leg removed from the running mission");
+});
 
 refreshRoutes();
 
