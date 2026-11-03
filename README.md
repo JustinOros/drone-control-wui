@@ -14,7 +14,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - One button to Start, Pause and Play the mission, also on the Xbox Start button. Turning Manual on during a mission pauses it and the button becomes **Resume**, which climbs straight up to the mission altitude if you are below it, then carries on from the current waypoint instead of restarting the route
 - Manual flight: W/S forward and back, A/D turn left and right, Q/E strafe sideways, Space up, Left Shift down
 - Xbox (or any standard) controller through the browser Gamepad API, laid out like a standard RC controller: sticks, takeoff, land, return to launch, mission pause and play, speed, photo and video
-- Take Picture and Start/Stop Recording, saved to `captures/`
+- Take Picture and Start/Stop Recording, saved to `captures/`. The **Browse** button opens a gallery of everything in `captures/` in a new tab (newest first, filter by pictures or videos, download links). Recordings use the mp4v codec, which some browsers will not play inline, so use Download for those
 - Takeoff, Land, Return to Launch, Arm, Disarm
 - Reset the SIM drone to your real GPS location with one button
 - Return home after the last waypoint is on by default. Untick it and the drone hovers at the last waypoint instead (use Land, Return to launch or Manual from there)

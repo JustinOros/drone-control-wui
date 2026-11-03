@@ -123,7 +123,7 @@ label { color:var(--dim); font-size:12px; }
     <div class="row">
       <button id="photo">Take picture</button>
       <button id="record">Start recording</button>
-      <span id="lastcap"></span>
+      <button id="browse" title="Open the captures gallery in a new tab">Browse</button>
     </div>
     <div class="grid">
       <div class="cell"><span>Mode</span><b id="tMode">-</b></div>
@@ -359,7 +359,6 @@ function openWs() {
     if (m.type === "connected") return showApp(m.mode);
     if (m.type === "disconnected") return showStart();
     if (m.type === "capture") {
-      $("lastcap").innerHTML = '<a style="color:#3d9bff" target="_blank" href="' + m.file + '">last picture</a>';
       return toast("picture saved");
     }
     if (m.type === "ok") return toast(m.message);
@@ -492,6 +491,7 @@ $("land").onclick = () => send({ cmd: "land" });
 $("rtl").onclick = () => send({ cmd: "rtl" });
 $("clear").onclick = () => { wps.length = 0; resumable = false; sent = null; redraw(); };
 $("photo").onclick = () => send({ cmd: "photo" });
+$("browse").onclick = () => window.open("/gallery", "dcw-gallery");
 $("record").onclick = () => send({ cmd: "record", on: !recording });
 function haltAction() {
   resumable = false;

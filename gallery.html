@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>drone-control-wui captures</title>
+<style>
+:root { --bg:#12151a; --panel:#1b2027; --line:#2c333d; --text:#e6e9ee; --dim:#8b95a3; --accent:#3d9bff; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px system-ui, sans-serif; }
+header { position:sticky; top:0; background:var(--panel); border-bottom:1px solid var(--line); padding:12px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; z-index:5; }
+h1 { margin:0; font-size:18px; }
+#count { color:var(--dim); }
+.tabs button { background:#262d37; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+.tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+#grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; padding:16px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.card img, .card video { width:100%; aspect-ratio:16/9; object-fit:cover; background:#000; display:block; }
+.meta { padding:8px 10px; display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--dim); }
+.meta a { color:var(--accent); text-decoration:none; }
+#empty { padding:40px; text-align:center; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Captures</h1>
+  <span id="count"></span>
+  <span class="tabs">
+    <button data-f="all" class="on">All</button>
+    <button data-f="photo">Pictures</button>
+    <button data-f="video">Videos</button>
+  </span>
+</header>
+<div id="grid"></div>
+<div id="empty" style="display:none">No captures yet. Use Take picture or Start recording in the main page.</div>
+<script>
+let items = [];
+let filter = "all";
+
+function size(n) {
+  if (n > 1048576) return (n / 1048576).toFixed(1) + " MB";
+  return Math.max(1, Math.round(n / 1024)) + " KB";
+}
+
+function render() {
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  const shown = items.filter(i => filter === "all" || i.type === filter);
+  document.getElementById("count").textContent = shown.length + " of " + items.length;
+  document.getElementById("empty").style.display = shown.length ? "none" : "block";
+  shown.forEach(i => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const url = "/captures/" + encodeURIComponent(i.name);
+    let media;
+    if (i.type === "video") {
+      media = document.createElement("video");
+      media.src = url;
+      media.controls = true;
+      media.preload = "metadata";
+    } else {
+      media = document.createElement("a");
+      media.href = url;
+      media.target = "_blank";
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.src = url;
+      media.appendChild(img);
+    }
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const left = document.createElement("span");
+    left.textContent = new Date(i.mtime * 1000).toLocaleString([], { hour12: true }) + " , " + size(i.size);
+    const dl = document.createElement("a");
+    dl.href = url;
+    dl.download = i.name;
+    dl.textContent = "Download";
+    meta.appendChild(left);
+    meta.appendChild(dl);
+    card.appendChild(media);
+    card.appendChild(meta);
+    grid.appendChild(card);
+  });
+}
+
+document.querySelectorAll(".tabs button").forEach(b => {
+  b.onclick = () => {
+    filter = b.dataset.f;
+    document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+    render();
+  };
+});
+
+fetch("/api/captures").then(r => r.json()).then(d => {
+  items = d.files;
+  render();
+});
+</script>
+</body>
+</html>

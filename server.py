@@ -682,6 +682,28 @@ def delete_route(name: str):
     return {"ok": True}
 
 
+@app.get("/gallery")
+def gallery():
+    return FileResponse(BASE / "gallery.html")
+
+
+@app.get("/api/captures")
+def list_captures():
+    files = []
+    for p in CAPTURES.iterdir():
+        ext = p.suffix.lower()
+        if ext in (".jpg", ".jpeg", ".png"):
+            kind = "photo"
+        elif ext in (".mp4", ".mov", ".webm"):
+            kind = "video"
+        else:
+            continue
+        st = p.stat()
+        files.append({"name": p.name, "type": kind, "size": st.st_size, "mtime": st.st_mtime})
+    files.sort(key=lambda f: f["mtime"], reverse=True)
+    return {"files": files}
+
+
 @app.get("/popout")
 def popout():
     return FileResponse(BASE / "popout.html")
