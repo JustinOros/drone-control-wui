@@ -4,94 +4,193 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>drone-control-wui</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono:wght@400;700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-:root { --bg:#12151a; --panel:#1b2027; --line:#2c333d; --text:#e6e9ee; --dim:#8b95a3; --accent:#3d9bff; --warn:#ff9800; --bad:#e5484d; --good:#30a46c; }
-* { box-sizing: border-box; }
-html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:14px system-ui, sans-serif; }
-#app { display:grid; grid-template-columns:1fr 360px; height:100%; }
-#map { height:100%; isolation:isolate; position:relative; }
-#panel { grid-column:2; }
-#panel { background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
-#video { width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; object-fit:contain; }
-#camslot { width:100%; aspect-ratio:16/9; position:relative; flex:none; }
-#camwrap { position:relative; background:#000; border-radius:6px; }
-#viewbtn { position:fixed; top:12px; left:calc((100vw - 360px) / 2); transform:translateX(-50%); z-index:1500; background:rgba(27,32,39,.92); box-shadow:0 2px 8px rgba(0,0,0,.5); }
-body.camMain #camslot { position:sticky; top:0; z-index:5; }
-body.camMain #camwrap { position:fixed; left:0; top:0; width:calc(100vw - 360px); height:100vh; border-radius:0; z-index:10; display:flex; align-items:center; justify-content:center; }
-body.camMain #video { width:100%; height:100%; aspect-ratio:auto; border-radius:0; }
-body.camMain #camtools { bottom:12px; right:12px; }
-body.camMain #map { position:fixed; z-index:600; border-radius:6px; border:1px solid var(--line); height:auto; }
-body.camMain #camwrap:fullscreen { left:0; top:0; width:100vw; height:100vh; }
-body.camMain #camwrap:-webkit-full-screen { left:0; top:0; width:100vw; height:100vh; }
-#camtools { position:absolute; right:6px; bottom:6px; display:flex; gap:6px; opacity:.85; }
-#camtools button { padding:5px 8px; font-size:12px; background:rgba(38,45,55,.9); }
-#camwrap:fullscreen { display:flex; align-items:center; justify-content:center; border-radius:0; }
-#camwrap:fullscreen #video { width:100%; height:100%; aspect-ratio:auto; border-radius:0; }
-#camwrap:-webkit-full-screen { display:flex; align-items:center; justify-content:center; border-radius:0; }
-#camwrap:-webkit-full-screen #video { width:100%; height:100%; aspect-ratio:auto; border-radius:0; }
-.row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-button { background:#262d37; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; cursor:pointer; font:inherit; }
-button:hover { border-color:var(--accent); }
-button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-button.danger { background:#3a1d20; border-color:var(--bad); }
-button.go { background:#17352a; border-color:var(--good); }
-button:disabled { opacity:.5; cursor:default; }
-input, select { background:#10141a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 8px; font:inherit; }
-input[type=number] { width:70px; }
+:root {
+  --dock:392px;
+  --stage:#0B1622;
+  --panel:#0F1C2A;
+  --raised:#172A3D;
+  --line:#243A50;
+  --text:#E7EFF7;
+  --dim:#8DA3B8;
+  --cyan:#46C8F2;
+  --route:#F052D0;
+  --go:#3DDC97;
+  --caution:#FFB224;
+  --bad:#FF5A5F;
+  --ui:"B612", ui-sans-serif, system-ui, sans-serif;
+  --mono:"B612 Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:var(--stage); color:var(--text); font:13px/1.45 var(--ui); }
+#app { display:grid; grid-template-columns:1fr var(--dock); height:100%; }
+#map { height:100%; position:relative; isolation:isolate; background:#0B1622; }
+#panel { grid-column:2; background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; display:flex; flex-direction:column; scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+
+button, input, select { font:inherit; color:var(--text); }
+button { background:var(--raised); border:1px solid var(--line); border-radius:5px; padding:8px 12px; cursor:pointer; line-height:1.2; transition:background .12s, border-color .12s; }
+button:hover { border-color:var(--cyan); background:#1C3349; }
+button:active { transform:translateY(1px); }
+button:disabled { opacity:.45; cursor:default; }
+button.on { background:var(--cyan); border-color:var(--cyan); color:#05202B; font-weight:700; }
+button.go { background:#12392F; border-color:#1F6B55; color:#BFF5DF; }
+button.go:hover { background:#17493C; border-color:var(--go); }
+button.danger { background:#3A1C25; border-color:#7A2F3B; color:#FFD3D6; }
+button.danger:hover { background:#4A2230; border-color:var(--bad); }
+button.quiet { background:transparent; border-color:transparent; color:var(--dim); padding:6px 8px; }
+button.quiet:hover { color:var(--text); background:var(--raised); border-color:var(--line); }
+input[type=text], input[type=number], select { background:#0A1520; border:1px solid var(--line); border-radius:5px; padding:7px 9px; min-width:0; }
+input[type=number] { width:76px; font-family:var(--mono); }
+input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible { outline:2px solid var(--cyan); outline-offset:1px; }
+select { padding-right:6px; }
 label { color:var(--dim); font-size:12px; }
-.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
-.cell { background:#10141a; border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
-.cell b { display:block; font-size:16px; }
-.cell span { color:var(--dim); font-size:11px; }
-#badge { font-weight:600; padding:3px 8px; border-radius:4px; background:var(--accent); color:#fff; }
-#badge.real { background:var(--bad); }
-#toast { min-height:18px; color:var(--warn); font-size:13px; }
-#hint { color:var(--dim); font-size:12px; line-height:1.5; }
-.wp { background:var(--warn); color:#000; border-radius:50%; width:24px; height:24px; line-height:24px; text-align:center; font-weight:700; border:2px solid #fff; }
-.drone .arrow { font-size:26px; color:#3dff9b; text-shadow:0 0 4px #000; transform-origin:50% 55%; line-height:26px; text-align:center; }
-#start { position:fixed; inset:0; background:rgba(10,12,16,.96); z-index:2000; display:flex; align-items:center; justify-content:center; }
-#startbox { width:min(520px,92vw); background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:24px; }
-#startbox h1 { margin:0 0 4px; font-size:22px; }
-#startbox p { color:var(--dim); margin:0 0 18px; }
-.big { width:100%; padding:16px; font-size:16px; margin-bottom:10px; }
-#realform { display:none; margin-top:6px; }
-#realform .f { display:grid; grid-template-columns:90px 1fr; gap:6px; margin-bottom:8px; align-items:center; }
-#realform input, #realform select { width:100%; }
-#disclaimer { margin-top:16px; padding:10px 12px; border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:6px; background:#10141a; color:var(--dim); font-size:12px; line-height:1.5; }
-#disclaimer b { color:var(--warn); }
-#startstatus { color:var(--warn); margin-top:10px; min-height:18px; }
+
+input[type=checkbox] { appearance:none; -webkit-appearance:none; flex:none; width:30px; height:17px; margin:0; border-radius:9px; background:#1B2F43; border:1px solid var(--line); position:relative; cursor:pointer; vertical-align:middle; transition:background .15s; }
+input[type=checkbox]::after { content:""; position:absolute; top:2px; left:2px; width:11px; height:11px; border-radius:50%; background:#7E94A9; transition:transform .15s, background .15s; }
+input[type=checkbox]:checked { background:#1B6F8B; border-color:var(--cyan); }
+input[type=checkbox]:checked::after { transform:translateX(13px); background:#fff; }
+label.sw { display:flex; align-items:center; gap:9px; color:var(--text); font-size:12.5px; cursor:pointer; line-height:1.35; }
+
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.note { color:var(--dim); font-size:12px; line-height:1.55; }
+
+#dockhead { display:flex; align-items:center; gap:8px; padding:12px 16px; white-space:nowrap; border-bottom:1px solid var(--line); }
+#brand { font-weight:700; font-size:13.5px; letter-spacing:.01em; margin-right:auto; display:flex; align-items:center; gap:9px; }
+#badge { font-family:var(--mono); font-weight:700; font-size:11px; padding:3px 8px; border-radius:3px; background:#12392F; color:var(--go); border:1px solid #1F6B55; }
+#badge.real { background:#4A1F27; color:#FFB3B7; border-color:var(--bad); }
+#dockhead label.sw { font-size:12px; color:var(--dim); }
+#settings { display:inline-flex; align-items:center; padding:6px 8px; }
+
+#camslot { width:calc(100% - 32px); margin:14px 16px 0; aspect-ratio:16/9; position:relative; flex:none; }
+#camwrap { position:relative; background:#000; border-radius:7px; overflow:hidden; border:1px solid var(--line); height:100%; }
+#video { width:100%; height:100%; background:#000; object-fit:contain; display:block; }
+#camtools { position:absolute; right:6px; bottom:6px; display:flex; gap:6px; }
+#camtools button { padding:5px 8px; font-size:11.5px; background:rgba(11,22,34,.82); border-color:rgba(70,200,242,.25); }
+#camwrap:fullscreen, #camwrap:-webkit-full-screen { display:flex; align-items:center; justify-content:center; border-radius:0; border:0; }
+#camwrap:fullscreen #video, #camwrap:-webkit-full-screen #video { width:100%; height:100%; }
+
+.section { padding:16px 16px 4px; display:flex; flex-direction:column; gap:10px; }
+.section + .section { border-top:1px solid var(--line); margin-top:12px; }
+.section h3 { margin:0; font-size:13px; font-weight:700; display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.section h3 small { font-weight:400; color:var(--dim); font-size:12px; }
+.pair { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.field { display:flex; align-items:center; gap:8px; }
+.field label { white-space:nowrap; }
+.field.grow { flex:1; }
+.takeoffrow { display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:center; }
+.takeoffrow .field { padding-right:2px; }
+#mission { width:100%; padding:13px 14px; font-size:15px; font-weight:700; border-radius:6px; }
+#mission:not(.go) { background:#4A3A12; border-color:#8A6A1C; color:#FFE2A0; }
+#manual { width:100%; text-align:left; display:flex; justify-content:space-between; align-items:center; padding:10px 12px; font-weight:700; }
+#manual::after { content:""; width:9px; height:9px; border-radius:50%; background:#3B5169; }
+#manual.on::after { background:#05202B; box-shadow:0 0 0 3px rgba(5,32,43,.35); }
+#rtl { color:#FFE2A0; }
+#wpcount { font-family:var(--mono); color:var(--route); font-weight:700; }
 #bstat { color:var(--dim); font-size:12px; }
-#alert { position:fixed; top:56px; left:calc((100vw - 360px) / 2); transform:translateX(-50%); z-index:1500; background:#8f1d22; color:#fff; border:1px solid var(--bad); border-radius:6px; padding:8px 14px; font-weight:600; display:none; box-shadow:0 2px 8px rgba(0,0,0,.5); }
-#bwarn { color:#ff6b6b; font-size:12px; line-height:1.4; }
-#settings { display:inline-flex; align-items:center; padding:7px 9px; }
-#settingsModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:3000; align-items:center; justify-content:center; }
-#settingsBox { width:min(620px,94vw); max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
-#settingsBox h2 { margin:0; font-size:18px; }
-#settingsBox h3 { margin:16px 0 6px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
-#padStatus { color:var(--warn); font-size:13px; margin-top:8px; }
-.prow { display:grid; grid-template-columns:1fr 150px auto auto; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid var(--line); }
-.prow b { font-weight:600; }
-.prow label { white-space:nowrap; }
-.note { color:var(--dim); font-size:12px; line-height:1.5; }
-@media (max-width:800px) { #app { grid-template-columns:1fr; grid-template-rows:50% 50%; } }
+#bwarn { color:var(--caution); font-size:12px; line-height:1.5; }
+#bwarn:empty { display:none; }
+details#help { margin:14px 16px 20px; border-top:1px solid var(--line); padding-top:10px; }
+details#help summary { cursor:pointer; color:var(--dim); font-size:12.5px; padding:4px 0; }
+#hint { color:var(--dim); font-size:12px; line-height:1.6; margin-top:6px; }
+
+#hud { position:fixed; left:14px; bottom:14px; width:calc(100vw - var(--dock) - 28px); z-index:20; display:flex; align-items:stretch; background:rgba(11,22,34,.9); border:1px solid #2C4660; border-radius:8px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); box-shadow:0 8px 28px rgba(0,0,0,.45); overflow:hidden; pointer-events:none; }
+#hud > div { padding:10px 18px; display:flex; align-items:center; gap:22px; }
+#hud > div + div { border-left:1px solid #2C4660; }
+.k { display:block; font-size:11px; color:var(--dim); margin-bottom:1px; }
+#hud b { font-family:var(--mono); font-weight:700; white-space:nowrap; }
+.hud-read { flex:1; justify-content:space-around; }
+.read b { font-size:26px; line-height:1.15; letter-spacing:-.01em; }
+.stat b { font-size:14px; }
+#tArmed { color:var(--dim); }
+#tArmed.armed { color:var(--caution); }
+#tMode { color:var(--cyan); }
+#toast { position:fixed; left:calc((100vw - var(--dock)) / 2); bottom:104px; transform:translateX(-50%); z-index:30; max-width:min(560px, calc(100vw - var(--dock) - 40px)); background:rgba(23,42,61,.96); border:1px solid #2C4660; color:var(--text); border-radius:6px; padding:8px 14px; font-size:12.5px; box-shadow:0 6px 20px rgba(0,0,0,.4); pointer-events:none; }
+#toast:empty { display:none; }
+#alert { position:fixed; top:64px; left:calc((100vw - var(--dock)) / 2); transform:translateX(-50%); z-index:1500; background:#7A1D26; color:#fff; border:1px solid var(--bad); border-radius:6px; padding:9px 16px; font-weight:700; display:none; box-shadow:0 6px 22px rgba(255,90,95,.35); }
+#viewbtn { position:fixed; top:14px; left:calc((100vw - var(--dock)) / 2); transform:translateX(-50%); z-index:1500; background:rgba(11,22,34,.9); border-color:#2C4660; padding:8px 16px; font-weight:700; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+
+body:not(.camMain) .leaflet-bottom { bottom:98px; }
+.leaflet-container { font-family:var(--ui); background:#0B1622; }
+.leaflet-bar a { background:#0F1C2A; color:var(--text); border-color:var(--line); }
+.leaflet-bar a:hover { background:var(--raised); }
+.leaflet-control-layers, .leaflet-control-attribution { background:rgba(11,22,34,.85) !important; color:var(--dim) !important; border-radius:5px; }
+.leaflet-control-attribution a { color:var(--cyan) !important; }
+.wp { background:var(--route); color:#fff; border-radius:50%; width:24px; height:24px; line-height:20px; text-align:center; font-family:var(--mono); font-weight:700; font-size:12px; border:2px solid #fff; box-shadow:0 0 0 3px rgba(240,82,208,.3); }
+.drone .arrow { font-size:26px; color:var(--cyan); text-shadow:0 0 6px rgba(70,200,242,.9), 0 0 2px #000; transform-origin:50% 55%; line-height:26px; text-align:center; }
+
+body.camMain #camslot { position:sticky; top:10px; z-index:5; }
+body.camMain #camwrap { position:fixed; left:0; top:0; width:calc(100vw - var(--dock)); height:100vh; border-radius:0; border:0; z-index:10; display:flex; align-items:center; justify-content:center; }
+body.camMain #video { width:100%; height:100%; }
+body.camMain #camtools { top:14px; right:14px; bottom:auto; }
+body.camMain #map { position:fixed; z-index:600; border-radius:7px; border:1px solid var(--line); height:auto; }
+body.camMain #camwrap:fullscreen, body.camMain #camwrap:-webkit-full-screen { left:0; top:0; width:100vw; height:100vh; }
+
+#start { position:fixed; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center; padding:20px; overflow-y:auto;
+  background:radial-gradient(ellipse 70% 60% at 25% 15%, #173553 0, transparent 70%), repeating-radial-gradient(circle at 78% 92%, transparent 0 26px, rgba(70,200,242,.07) 26px 27px), #08121D; }
+#startbox { width:min(560px,100%); }
+#startbox h1 { margin:0 0 6px; font-size:30px; letter-spacing:-.01em; }
+#startbox p { color:var(--dim); margin:0 0 22px; font-size:14px; }
+.tile { display:block; width:100%; text-align:left; padding:18px 20px; margin-bottom:12px; border-radius:9px; }
+.tile b { display:block; font-size:17px; margin-bottom:4px; }
+.tile span { color:var(--dim); font-size:12.5px; line-height:1.5; }
+.tile.go { background:#0F3A30; border-color:#1F6B55; }
+.tile.go:hover { background:#14483B; }
+.tile.danger { background:#2D1822; border-color:#6D2C3A; }
+.tile.danger:hover { background:#3A1E2B; }
+.big { width:100%; padding:14px; font-size:15px; font-weight:700; margin-bottom:10px; }
+#realform { display:none; margin-top:6px; padding:16px; background:rgba(15,28,42,.9); border:1px solid var(--line); border-radius:9px; }
+#realform .f { display:grid; grid-template-columns:104px 1fr; gap:8px; margin-bottom:10px; align-items:center; }
+#realform input, #realform select { width:100%; }
+#startstatus { color:var(--caution); margin-top:10px; min-height:18px; }
+#disclaimer { margin-top:18px; padding:11px 14px; border-left:3px solid var(--caution); background:rgba(11,22,34,.85); color:var(--dim); font-size:12px; line-height:1.6; border-radius:0 6px 6px 0; }
+#disclaimer b { color:var(--caution); }
+
+#settingsModal { display:none; position:fixed; inset:0; background:rgba(4,10,16,.78); z-index:3000; align-items:center; justify-content:center; padding:16px; }
+#settingsBox { width:min(640px,100%); max-height:92vh; overflow-y:auto; background:var(--panel); border:1px solid #2C4660; border-radius:10px; padding:20px 22px; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+#settingsBox h2 { margin:0; font-size:19px; }
+#settingsBox h3 { margin:22px 0 8px; font-size:13.5px; padding-top:14px; border-top:1px solid var(--line); }
+#settingsBox h3:first-of-type { border-top:0; padding-top:0; margin-top:16px; }
+#padStatus { color:var(--caution); font-size:12.5px; margin-bottom:6px; }
+.prow { display:grid; grid-template-columns:1fr 150px auto auto; gap:8px; align-items:center; padding:5px 0; border-bottom:1px solid var(--line); }
+.prow b { font-family:var(--mono); font-weight:700; font-size:12px; color:var(--cyan); }
+.prow label { white-space:nowrap; color:var(--dim); display:flex; align-items:center; gap:6px; }
+.prow button { padding:5px 9px; font-size:12px; }
+
+@media (max-width:900px) {
+  :root { --dock:0px; }
+  #app { grid-template-columns:1fr; grid-template-rows:56vh auto; height:auto; min-height:100%; }
+  #panel { grid-column:1; border-left:0; border-top:1px solid var(--line); overflow:visible; }
+  #map { height:56vh; }
+  #hud { width:calc(100vw - 20px); left:10px; bottom:auto; top:calc(56vh - 86px); }
+  #hud > div { padding:8px 10px; gap:12px; }
+  .hud-aux { display:none !important; }
+  .read b { font-size:19px; }
+  #toast { bottom:auto; top:calc(56vh - 130px); }
+  body:not(.camMain) .leaflet-bottom { bottom:92px; }
+  body.camMain #camwrap { width:100vw; height:56vh; }
+}
+@media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
 </style>
 </head>
 <body>
 <div id="start">
   <div id="startbox">
     <h1>drone-control-wui</h1>
-    <p>Choose how to fly.</p>
-    <button class="big go" id="simBtn">Fly with SIM</button>
-    <button class="big danger" id="realBtn">Real flight</button>
+    <p>Plan a route on the map, watch the camera and fly from your browser.</p>
+    <button class="tile go" id="simBtn"><b>Fly with SIM</b><span>Practice with a built-in simulated drone. Nothing to connect or install.</span></button>
+    <button class="tile danger" id="realBtn"><b>Real flight</b><span>Connect to a drone running ArduPilot over WiFi or 4G LTE.</span></button>
     <div id="realform">
       <div class="f"><label>Link</label>
         <select id="link"><option value="wifi">WiFi (close range)</option><option value="lte">4G LTE (long range)</option></select>
       </div>
-      <div class="f"><label>WiFi MAVLink</label><input id="wificonn" value="udpin:0.0.0.0:14550"></div>
-      <div class="f"><label>WiFi video</label><input id="wifivideo" placeholder="rtsp://192.168.4.1:8554/cam"></div>
-      <div class="f"><label>LTE MAVLink</label><input id="lteconn" placeholder="tcp:your-relay-host:5760"></div>
-      <div class="f"><label>LTE video</label><input id="ltevideo" placeholder="rtsp://your-relay-host:8554/cam"></div>
+      <div class="f"><label>WiFi MAVLink</label><input type="text" id="wificonn" value="udpin:0.0.0.0:14550"></div>
+      <div class="f"><label>WiFi video</label><input type="text" id="wifivideo" placeholder="rtsp://192.168.4.1:8554/cam"></div>
+      <div class="f"><label>LTE MAVLink</label><input type="text" id="lteconn" placeholder="tcp:your-relay-host:5760"></div>
+      <div class="f"><label>LTE video</label><input type="text" id="ltevideo" placeholder="rtsp://your-relay-host:8554/cam"></div>
       <button class="big danger" id="connectReal">Connect to real drone</button>
     </div>
     <div id="startstatus"></div>
@@ -103,94 +202,113 @@ label { color:var(--dim); font-size:12px; }
   <div id="map"></div>
   <div id="alert"></div>
   <button id="viewbtn" title="Swap the map and the camera">Show camera</button>
-  <div id="panel">
-    <div class="row" style="justify-content:space-between">
-      <span id="badge">OFFLINE</span>
-      <label><input type="checkbox" id="follow"> follow</label>
-      <button id="units" title="Switch between Metric and Imperial">Metric</button>
-      <button id="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button>
-      <button id="disconnect">Disconnect</button>
+
+  <div id="hud">
+    <div class="hud-status">
+      <div class="stat"><span class="k">Mode</span><b id="tMode">-</b></div>
+      <div class="stat"><span class="k">Armed</span><b id="tArmed">-</b></div>
     </div>
+    <div class="hud-read">
+      <div class="read"><span class="k">Altitude</span><b id="tAlt">-</b></div>
+      <div class="read"><span class="k">Speed</span><b id="tSpd">-</b></div>
+      <div class="read"><span class="k">Heading</span><b id="tHdg">-</b></div>
+    </div>
+    <div class="hud-aux">
+      <div class="stat"><span class="k">Battery</span><b id="tBat">-</b></div>
+      <div class="stat"><span class="k">GPS</span><b id="tGps">-</b></div>
+      <div class="stat"><span class="k">Waypoint</span><b id="tWp">-</b></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+
+  <div id="panel">
+    <div id="dockhead">
+      <div id="brand"><span id="badge">OFFLINE</span>Drone</div>
+      <label class="sw"><input type="checkbox" id="follow"> Follow</label>
+      <button class="quiet" id="units" title="Switch between Metric and Imperial">Metric</button>
+      <button class="quiet" id="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button>
+      <button class="quiet" id="disconnect">Disconnect</button>
+    </div>
+
     <div id="camslot">
-    <div id="camwrap">
-      <img id="video" alt="drone camera">
-      <div id="camtools">
-        <button id="popout" title="Open the camera in its own window">Popout</button>
-        <button id="fullscreen" title="Fullscreen (or double-click the video)">Fullscreen</button>
+      <div id="camwrap">
+        <img id="video" alt="drone camera">
+        <div id="camtools">
+          <button id="popout" title="Open the camera in its own window">Popout</button>
+          <button id="fullscreen" title="Fullscreen (or double-click the video)">Fullscreen</button>
+        </div>
       </div>
     </div>
-    </div>
-    <div class="row">
-      <button id="photo">Take picture</button>
-      <button id="record">Start recording</button>
-      <button id="browse" title="Open the captures gallery in a new tab">Browse</button>
-    </div>
-    <div class="grid">
-      <div class="cell"><span>Mode</span><b id="tMode">-</b></div>
-      <div class="cell"><span>Armed</span><b id="tArmed">-</b></div>
-      <div class="cell"><span>Altitude</span><b id="tAlt">-</b></div>
-      <div class="cell"><span>Speed</span><b id="tSpd">-</b></div>
-      <div class="cell"><span>Heading</span><b id="tHdg">-</b></div>
-      <div class="cell"><span>Battery</span><b id="tBat">-</b></div>
-      <div class="cell"><span>GPS sats</span><b id="tGps">-</b></div>
-      <div class="cell"><span>Waypoint</span><b id="tWp">-</b></div>
-      <div class="cell"><span>Waypoints set</span><b id="wpcount">0</b></div>
-    </div>
-    <div class="row">
-      <button id="arm">Arm</button>
-      <button id="disarm">Disarm</button>
-      <label id="lblTalt">alt (m)</label><input type="number" id="talt" value="10" min="2" max="120">
-      <button id="takeoff" class="go">Takeoff</button>
-      <button id="land">Land</button>
-      <button id="rtl">RTL</button>
-    </div>
-    <div class="row">
-      <label id="lblMalt">Mission alt (m)</label><input type="number" id="malt" value="20" min="2" max="120">
-      <button id="mission" class="go">Start mission</button>
-      <button id="clear">Clear waypoints</button>
-    </div>
-    <div class="row">
-      <label><input type="checkbox" id="rth" checked> return home after the last waypoint</label>
-    </div>
-    <div class="row">
-      <label><input type="checkbox" id="reverse"> after the last waypoint, fly back through them in reverse</label>
-    </div>
-    <div class="row">
-      <select id="routes"></select>
-      <button id="rload">Load</button>
-      <button id="rdel">Delete</button>
-    </div>
-    <div class="row">
-      <input type="text" id="rname" placeholder="route name" maxlength="60">
-      <button id="rsave">Save route</button>
-    </div>
-    <div class="row">
-      <label><input type="checkbox" id="bld"> show real buildings (OpenStreetMap)</label>
-      <span id="bstat"></span>
-      <button id="bclear" title="Forget saved buildings and reload them">Clear cache</button>
-    </div>
-    <div class="row">
-      <label for="avoid">Building in the way</label>
-      <select id="avoid">
-        <option value="around">Fly around</option>
-        <option value="over">Fly over</option>
-        <option value="warn">Warn only</option>
-      </select>
-    </div>
-    <div id="bwarn"></div>
-    <div class="row">
+
+    <div class="section" id="secFly">
+      <h3>Fly</h3>
+      <div class="pair">
+        <button id="arm">Arm</button>
+        <button id="disarm">Disarm</button>
+      </div>
+      <div class="takeoffrow">
+        <div class="field"><label id="lblTalt" for="talt">alt (m)</label><input type="number" id="talt" value="10" min="2" max="120"></div>
+        <button id="takeoff" class="go">Take off</button>
+      </div>
+      <div class="pair">
+        <button id="land">Land</button>
+        <button id="rtl" title="Return to launch: fly back to where the drone was armed and land">Return home</button>
+      </div>
       <button id="manual">Manual: OFF</button>
-      <label id="lblSpeed">Speed (m/s)</label><input type="number" id="speed" value="3" min="1" max="18" step="0.5">
+      <div class="field"><label id="lblSpeed" for="speed">Speed (m/s)</label><input type="number" id="speed" value="3" min="1" max="18" step="0.5"></div>
+      <div class="row" id="simrow">
+        <button id="simloc">Reset SIM to my GPS</button>
+      </div>
     </div>
-    <div class="row" id="simrow">
-      <button id="simloc">Reset SIM to my GPS</button>
+
+    <div class="section" id="secMission">
+      <h3>Mission <small><span id="wpcount">0</span> waypoints</small></h3>
+      <div class="field"><label id="lblMalt" for="malt">Mission alt (m)</label><input type="number" id="malt" value="20" min="2" max="120"><button class="quiet" id="clear" style="margin-left:auto">Clear waypoints</button></div>
+      <button id="mission" class="go">Start mission</button>
+      <label class="sw"><input type="checkbox" id="rth" checked> Return home after the last waypoint</label>
+      <label class="sw"><input type="checkbox" id="reverse"> After the last waypoint, fly back through them in reverse</label>
+      <div class="row">
+        <select id="routes" style="flex:1"></select>
+        <button id="rload">Load</button>
+        <button id="rdel" class="quiet">Delete</button>
+      </div>
+      <div class="row">
+        <input type="text" id="rname" placeholder="route name" maxlength="60" style="flex:1">
+        <button id="rsave">Save route</button>
+      </div>
     </div>
-    <div id="toast"></div>
-    <div id="hint">
-      Click the map to add waypoints, click a waypoint to remove it.<br>
-      Manual mode: W/S forward and back, A/D turn left and right, Q/E strafe sideways, Space up, Left Shift down.<br>
-      Xbox (default layout, change it with the gear icon): left stick climb, descend and yaw, right stick move. Y takeoff, X land, Back return to launch, Start pause or play the mission, L3 manual on or off, LB/RB speed, A picture, B record.
+
+    <div class="section" id="secBuildings">
+      <h3>Buildings <small id="bstat"></small></h3>
+      <label class="sw"><input type="checkbox" id="bld"> Show real buildings (OpenStreetMap)</label>
+      <div class="field"><label for="avoid">Building in the way</label>
+        <select id="avoid">
+          <option value="around">Fly around</option>
+          <option value="over">Fly over</option>
+          <option value="warn">Warn only</option>
+        </select>
+        <button class="quiet" id="bclear" title="Forget saved buildings and reload them" style="margin-left:auto">Clear cache</button>
+      </div>
+      <div id="bwarn"></div>
     </div>
+
+    <div class="section" id="secCamera">
+      <h3>Camera</h3>
+      <div class="pair">
+        <button id="photo">Take picture</button>
+        <button id="record">Start recording</button>
+      </div>
+      <button id="browse" title="Open the captures gallery in a new tab">Browse pictures and videos</button>
+    </div>
+
+    <details id="help">
+      <summary>Controls</summary>
+      <div id="hint">
+        Click the map to add waypoints, click a waypoint to remove it.<br>
+        Manual mode: W/S forward and back, A/D turn left and right, Q/E strafe sideways, Space up, Left Shift down.<br>
+        Xbox (default layout, change it with the gear icon): left stick climb, descend and yaw, right stick move. Y takeoff, X land, Back return to launch, Start pause or play the mission, L3 manual on or off, LB/RB speed, A picture, B record.
+      </div>
+    </details>
   </div>
 </div>
 
@@ -316,7 +434,7 @@ function redraw() {
     return m;
   });
   if (poly) poly.remove();
-  poly = L.polyline(wps, { color: "#ff9800", weight: 3 }).addTo(map);
+  poly = L.polyline(wps, { color: "#F052D0", weight: 3 }).addTo(map);
   $("wpcount").textContent = wps.length;
   checkMission();
 }
@@ -438,6 +556,7 @@ function telemetry(m) {
   $("mission").className = label === "Pause" ? "" : "go";
   $("tMode").textContent = d.mode || "-";
   $("tArmed").textContent = d.armed ? "YES" : "no";
+  $("tArmed").classList.toggle("armed", !!d.armed);
   $("tAlt").textContent = imperial ? Math.round(d.alt * FT) + " ft" : d.alt.toFixed(1) + " m";
   $("tSpd").textContent = imperial ? (d.groundspeed * MPH).toFixed(1) + " mph" : d.groundspeed.toFixed(1) + " m/s";
   $("tHdg").textContent = d.heading + " deg";
@@ -1082,7 +1201,7 @@ async function fetchBuildings(b) {
 function drawBuildings() {
   bldLayer.clearLayers();
   bldCache.forEach(b => {
-    const col = b.h >= 25 ? "#e5484d" : b.h >= 12 ? "#ff9800" : "#3d9bff";
+    const col = b.h >= 25 ? "#FF5A5F" : b.h >= 12 ? "#FFB224" : "#46C8F2";
     L.polygon(b.pts, { color: col, weight: 1, fillOpacity: 0.3 })
       .bindTooltip((b.est ? "about " : "") + fmtLen(b.h) + (b.est ? " (estimated)" : ""))
       .addTo(bldLayer);
@@ -1394,7 +1513,7 @@ function checkMission() {
     route = rebuilt;
     if (added) {
       note = "Route adjusted: " + added + " detour point" + (added > 1 ? "s" : "") + " added to fly around buildings.";
-      planLine = L.polyline([start || wps[0]].concat(route), { color: "#4fc3f7", weight: 3, dashArray: "6 6" }).addTo(map);
+      planLine = L.polyline([start || wps[0]].concat(route), { color: "#46C8F2", weight: 3, dashArray: "6 6" }).addTo(map);
     }
   }
 
@@ -1411,7 +1530,7 @@ function checkMission() {
   } else if (failed) {
     msgs.push("Warning: no way around a building was found (a waypoint may sit inside one).");
   }
-  el.style.color = hits.length || failed ? "" : "#4fc3f7";
+  el.style.color = hits.length || failed ? "" : "#46C8F2";
   el.textContent = msgs.join(" ");
   return hits.length || failed ? (hits.length ? hits : [{}]) : [];
 }

@@ -6,6 +6,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 
 ## Features
 
+- Cockpit style interface: a flight instrument strip along the bottom (mode, armed, altitude, speed, heading, battery, GPS, waypoint), and a control dock on the right with Fly, Mission, Buildings and Camera sections.
 - Start screen: **Fly with SIM** or **Real flight**
 - Click-to-add waypoints on a satellite or street map, one click to launch the mission
 - Live drone position, heading, altitude, speed, battery, GPS and flight mode
