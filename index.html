@@ -58,6 +58,8 @@ label { color:var(--dim); font-size:12px; }
 #realform { display:none; margin-top:6px; }
 #realform .f { display:grid; grid-template-columns:90px 1fr; gap:6px; margin-bottom:8px; align-items:center; }
 #realform input, #realform select { width:100%; }
+#disclaimer { margin-top:16px; padding:10px 12px; border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:6px; background:#10141a; color:var(--dim); font-size:12px; line-height:1.5; }
+#disclaimer b { color:var(--warn); }
 #startstatus { color:var(--warn); margin-top:10px; min-height:18px; }
 #bstat { color:var(--dim); font-size:12px; }
 #alert { position:fixed; top:56px; left:calc((100vw - 360px) / 2); transform:translateX(-50%); z-index:1500; background:#8f1d22; color:#fff; border:1px solid var(--bad); border-radius:6px; padding:8px 14px; font-weight:600; display:none; box-shadow:0 2px 8px rgba(0,0,0,.5); }
@@ -93,6 +95,7 @@ label { color:var(--dim); font-size:12px; }
       <button class="big danger" id="connectReal">Connect to real drone</button>
     </div>
     <div id="startstatus"></div>
+    <div id="disclaimer"><b>Disclaimer:</b> This app is for testing purposes only. Use it at your own risk. The author is not responsible for any loss of or damage to your drone, property or anything else, or for any injury or legal consequences. Follow your local drone laws and always keep line of sight.</div>
   </div>
 </div>
 

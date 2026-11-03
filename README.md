@@ -2,6 +2,8 @@
 
 A web UI for flying a drone from your computer. Click waypoints on a map, watch the live camera, fly manually with the keyboard or an Xbox controller, and take pictures or record video. Works against an ArduPilot simulator first, then a real drone over WiFi or 4G LTE.
 
+> **Disclaimer:** This app is for testing purposes only. Use it at your own risk. The author is not responsible for any loss of or damage to your drone, property or anything else, or for any injury or legal consequences. Follow your local drone laws and always keep line of sight.
+
 ## Features
 
 - Start screen: **Fly with SIM** or **Real flight**
@@ -165,3 +167,5 @@ Turn on **Manual** in the panel first. Manual control switches the drone to GUID
 ## License
 
 MIT
+
+> **Disclaimer:** This app is for testing purposes only. Use it at your own risk. The author is not responsible for any loss of or damage to your drone, property or anything else, or for any injury or legal consequences. Follow your local drone laws and always keep line of sight.
