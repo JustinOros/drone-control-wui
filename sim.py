@@ -65,6 +65,7 @@ class Sim:
         self.incoming = []
         self.expected = 0
         self.seq = 0
+        self.done_said = False
         self.takeoff_alt = None
         self.cmd = (0.0, 0.0, 0.0, 0.0, 0.0)
         self.rtl_phase = ""
@@ -301,7 +302,11 @@ class Sim:
 
     def auto(self):
         if self.seq >= len(self.items):
+            if not self.done_said:
+                self.done_said = True
+                self.say("Mission complete, hovering")
             return 0.0, 0.0, 0.0, 0.0
+        self.done_said = False
         command, lat, lon, alt = self.items[self.seq]
         if command == mav2.MAV_CMD_NAV_TAKEOFF:
             if self.alt >= alt - 0.3:

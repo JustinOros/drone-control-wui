@@ -272,7 +272,7 @@ class Vehicle:
                 0, math.radians(yaw),
             )
 
-    def upload_mission(self, wps, alt):
+    def upload_mission(self, wps, alt, rth=True):
         self.need()
         alt = clamp(alt, 2, MAX_ALT)
         home_lat = self.state["lat"] if self.state["lat"] is not None else wps[0][0]
@@ -281,7 +281,8 @@ class Vehicle:
         items.append((6, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0.0, 0.0, alt))
         for lat, lon in wps:
             items.append((6, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, lat, lon, alt))
-        items.append((6, mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH, 0.0, 0.0, 0.0))
+        if rth:
+            items.append((6, mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH, 0.0, 0.0, 0.0))
         ts = self.link.target_system
         tc = self.link.target_component
         with self.lock:
@@ -312,10 +313,10 @@ class Vehicle:
                 )
         raise RuntimeError("mission upload timed out")
 
-    def run_mission(self, wps, alt):
+    def run_mission(self, wps, alt, rth=True):
         if not wps:
             raise RuntimeError("no waypoints")
-        self.upload_mission(wps, alt)
+        self.upload_mission(wps, alt, rth)
         self.set_mode("GUIDED")
         time.sleep(0.5)
         self.arm_and_wait()
@@ -691,10 +692,13 @@ async def handle(msg):
         full = wps
         if msg.get("reverse") and len(wps) > 1:
             full = wps + wps[-2::-1]
-        await asyncio.to_thread(vehicle.run_mission, full, msg.get("alt", 20))
+        rth = bool(msg.get("rth", True))
+        await asyncio.to_thread(vehicle.run_mission, full, msg.get("alt", 20), rth)
         text = "mission started with {} waypoints".format(len(wps))
         if len(full) > len(wps):
             text += " plus the reverse leg"
+        if not rth:
+            text += ", it will hover at the last waypoint"
         return {"type": "ok", "message": text}
     if cmd == "photo":
         name = video.photo()

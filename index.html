@@ -132,6 +132,9 @@ label { color:var(--dim); font-size:12px; }
       <button id="clear">Clear waypoints</button>
     </div>
     <div class="row">
+      <label><input type="checkbox" id="rth" checked> return home after the last waypoint</label>
+    </div>
+    <div class="row">
       <label><input type="checkbox" id="reverse"> after the last waypoint, fly back through them in reverse</label>
     </div>
     <div class="row">
@@ -476,7 +479,7 @@ function missionToggle() {
   missionActive = true;
   startingUntil = Date.now() + 30000;
   const plan = lastPlan || { route: wps, alt: toM(parseFloat($("malt").value)) || 20 };
-  send({ cmd: "mission", waypoints: plan.route, reverse: $("reverse").checked, alt: plan.alt });
+  send({ cmd: "mission", waypoints: plan.route, reverse: $("reverse").checked, rth: $("rth").checked, alt: plan.alt });
 }
 
 $("mission").onclick = missionToggle;
@@ -1161,7 +1164,7 @@ function checkMission() {
   let failed = false;
 
   if (mode === "over") {
-    const need = pathHits(start ? flat.concat([flat[0]]) : flat, 0).reduce((m, b) => Math.max(m, b.h + ROOF_MARGIN), 0);
+    const need = pathHits(start && $("rth").checked ? flat.concat([flat[0]]) : flat, 0).reduce((m, b) => Math.max(m, b.h + ROOF_MARGIN), 0);
     if (need > alt) {
       alt = Math.min(120, Math.ceil(need));
       note = "Mission altitude raised to " + fmtLen(alt) + " to clear the buildings on the path.";
@@ -1189,7 +1192,7 @@ function checkMission() {
       rebuilt.push(wps[i - (start ? 1 : 0)]);
     }
     if (!start) rebuilt.unshift(wps[0]);
-    if (start) {
+    if (start && $("rth").checked) {
       const back = detour(flat[flat.length - 1], flat[0], obs, nodesObs);
       if (back === null) failed = true;
       else {
@@ -1204,7 +1207,7 @@ function checkMission() {
     }
   }
 
-  const finalPath = (start ? [start] : []).concat(route, start ? [start] : []).map(pr);
+  const finalPath = (start ? [start] : []).concat(route, start && $("rth").checked ? [start] : []).map(pr);
   const hits = pathHits(finalPath, alt);
   lastPlan = { route, alt };
   const msgs = [];
@@ -1241,6 +1244,11 @@ $("bld").onchange = () => {
 };
 $("malt").addEventListener("input", checkMission);
 $("avoid").addEventListener("change", checkMission);
+$("rth").addEventListener("change", () => {
+  try { localStorage.setItem("dcw_rth", $("rth").checked ? "1" : "0"); } catch (e) {}
+  checkMission();
+});
+try { if (localStorage.getItem("dcw_rth") === "0") $("rth").checked = false; } catch (e) {}
 $("bclear").onclick = async () => {
   await idbClear();
   tilesDone.clear();
