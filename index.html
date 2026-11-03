@@ -210,6 +210,8 @@ label { color:var(--dim); font-size:12px; }
       <button id="capDefault">Use default</button>
     </div>
     <div id="capStatus" class="note"></div>
+    <div class="row" style="margin-top:8px"><label><input type="checkbox" id="optBurn"> Burn time, altitude, speed and heading into saved pictures and videos from a real drone</label></div>
+    <div class="row" style="margin-top:4px"><label><input type="checkbox" id="optSim"> Include the SIM overlay (label, time, altitude, speed, heading) in saved SIM pictures and videos</label></div>
     <h3>Controller</h3>
     <div id="padStatus"></div>
     <h3>Buttons</h3>
@@ -845,6 +847,8 @@ async function loadCapSettings() {
     $("capdir").value = d.captures_dir;
     $("capdir").placeholder = d.default;
     $("capStatus").textContent = "Saving to: " + d.effective + (d.available ? "" : " (not available right now)");
+    $("optBurn").checked = d.burn_real;
+    $("optSim").checked = d.sim_overlay_saved;
   } catch (e) {
     $("capStatus").textContent = "could not read settings: " + e.message;
   }
@@ -862,6 +866,20 @@ async function saveCapDir(value) {
   }
 }
 
+async function saveOpt(key, val) {
+  try {
+    const body = {};
+    body[key] = val;
+    const r = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    toast("setting saved");
+  } catch (e) {
+    toast("setting not saved: " + e.message);
+  }
+}
+
+$("optBurn").onchange = () => saveOpt("burn_real", $("optBurn").checked);
+$("optSim").onchange = () => saveOpt("sim_overlay_saved", $("optSim").checked);
 $("capSave").onclick = () => saveCapDir($("capdir").value);
 $("capDefault").onclick = () => saveCapDir("");
 $("capChoose").onclick = async () => {

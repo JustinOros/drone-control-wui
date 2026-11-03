@@ -463,23 +463,36 @@ def draw_buildings(img, st, horizon):
             cv2.polylines(img, [roof], True, (40, 40, 50), 1)
 
 
-def sim_frame(t, st):
+def telemetry_line(st):
+    alt = st.get("alt") or 0.0
+    spd = st.get("groundspeed") or 0.0
+    hdg = st.get("heading") or 0
+    if prefs["imperial"]:
+        return "ALT {:.0f} ft   SPD {:.1f} mph   HDG {}".format(alt * 3.28084, spd * 2.23694, hdg)
+    return "ALT {:.1f} m   SPD {:.1f} m/s   HDG {}".format(alt, spd, hdg)
+
+
+def draw_overlay(img, st, label=None):
+    h, w = img.shape[:2]
+    scale = max(0.5, w / 640.0)
+    thick = 2 if scale >= 1.5 else 1
+    clock = time.strftime("%I:%M:%S %p")
+    if label:
+        cv2.putText(img, label, (int(16 * scale), int(32 * scale)), FONT, 0.8 * scale, (255, 255, 255), 2)
+    (tw, _), _ = cv2.getTextSize(clock, FONT, 0.6 * scale, thick)
+    cv2.putText(img, clock, (w - tw - int(16 * scale), int(32 * scale)), FONT, 0.6 * scale, (255, 255, 255), thick)
+    cv2.putText(img, telemetry_line(st), (int(16 * scale), h - int(20 * scale)), FONT, 0.6 * scale, (255, 255, 255), thick)
+
+
+def sim_frame(t, st, overlay=True):
     img = np.zeros((360, 640, 3), np.uint8)
     horizon = int(180 + 20 * math.sin(t / 2))
     img[:horizon] = (205, 170, 100)
     img[horizon:] = (70, 130, 70)
     cv2.line(img, (0, horizon), (640, horizon), (255, 255, 255), 1)
     draw_buildings(img, st, horizon)
-    cv2.putText(img, "SIM CAMERA", (16, 32), FONT, 0.8, (255, 255, 255), 2)
-    cv2.putText(img, time.strftime("%I:%M:%S %p"), (500, 32), FONT, 0.6, (255, 255, 255), 1)
-    alt = st.get("alt") or 0.0
-    spd = st.get("groundspeed") or 0.0
-    hdg = st.get("heading") or 0
-    if prefs["imperial"]:
-        line = "ALT {:.0f} ft   SPD {:.1f} mph   HDG {}".format(alt * 3.28084, spd * 2.23694, hdg)
-    else:
-        line = "ALT {:.1f} m   SPD {:.1f} m/s   HDG {}".format(alt, spd, hdg)
-    cv2.putText(img, line, (16, 340), FONT, 0.6, (255, 255, 255), 1)
+    if overlay:
+        draw_overlay(img, st, "SIM CAMERA")
     return img
 
 
@@ -493,6 +506,7 @@ class Video:
     def __init__(self):
         self.lock = threading.Lock()
         self.frame = None
+        self.saved = None
         self.gen = 0
         self.writer = None
         self.size = None
@@ -512,8 +526,13 @@ class Video:
     def run(self, gen, source, sim, state_fn):
         cap = None
         while self.gen == gen:
+            saved = None
             if sim:
-                frame = sim_frame(time.time(), state_fn())
+                st = state_fn()
+                raw = sim_frame(time.time(), st, False)
+                frame = raw.copy()
+                draw_overlay(frame, st, "SIM CAMERA")
+                saved = frame if settings.get("sim_overlay_saved", True) else raw
                 time.sleep(1 / 15)
             else:
                 ok = False
@@ -528,17 +547,21 @@ class Video:
                         cap = None
                     frame = no_signal_frame()
                     time.sleep(1)
-            self.push(frame)
+                elif settings.get("burn_real", False):
+                    saved = frame.copy()
+                    draw_overlay(saved, state_fn())
+            self.push(frame, saved)
         if cap is not None:
             cap.release()
 
-    def push(self, frame):
+    def push(self, frame, saved=None):
         with self.lock:
             self.frame = frame
+            self.saved = frame if saved is None else saved
             if self.recording and self.writer is not None:
-                out = frame
-                if (frame.shape[1], frame.shape[0]) != self.size:
-                    out = cv2.resize(frame, self.size)
+                out = self.saved
+                if (out.shape[1], out.shape[0]) != self.size:
+                    out = cv2.resize(out, self.size)
                 self.writer.write(out)
 
     def get(self):
@@ -551,7 +574,7 @@ class Video:
                 return ""
             name = "photo_" + stamp() + ".jpg"
             path = captures_dir() / name
-            if not cv2.imwrite(str(path), self.frame):
+            if not cv2.imwrite(str(path), self.saved if self.saved is not None else self.frame):
                 raise RuntimeError("could not write " + str(path))
             return name
 
@@ -645,6 +668,8 @@ def settings_view():
         "effective": str(p),
         "default": str(DEFAULT_CAPTURES),
         "available": p.is_dir(),
+        "sim_overlay_saved": bool(settings.get("sim_overlay_saved", True)),
+        "burn_real": bool(settings.get("burn_real", False)),
     }
 
 
@@ -656,6 +681,12 @@ def get_settings():
 @app.post("/api/settings")
 async def set_settings(request: Request):
     body = await request.json()
+    for key in ("sim_overlay_saved", "burn_real"):
+        if key in body:
+            settings[key] = bool(body[key])
+    if "captures_dir" not in body:
+        save_settings()
+        return settings_view()
     raw = str(body.get("captures_dir", "")).strip()
     if video.recording:
         raise HTTPException(status_code=409, detail="stop the recording before changing the folder")
