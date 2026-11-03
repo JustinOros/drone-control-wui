@@ -15,6 +15,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - Takeoff, Land, Return to Launch, Arm, Disarm
 - Reset the SIM drone to your real GPS location with one button
 - Return home after the last waypoint is on by default. Untick it and the drone hovers at the last waypoint instead (use Land, Return to launch or Manual from there)
+- Save, load and delete named routes (waypoints plus altitude, reverse, return home and building settings), stored in `routes.json` next to the server and git-ignored. Load a route, then press Start mission
 - Optional reverse leg: after the last waypoint, fly back through the waypoints in reverse, then return to launch
 - Metric / Imperial toggle for altitude and speed (remembered in your browser)
 - WiFi link for close range, 4G LTE link for long range, selectable at connect time

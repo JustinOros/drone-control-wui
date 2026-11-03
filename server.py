@@ -593,6 +593,77 @@ def cacheflag():
     return {"clear": CLEAR_CACHE, "id": STARTUP_ID}
 
 
+ROUTES_FILE = BASE / "routes.json"
+routes_lock = threading.Lock()
+
+
+def read_routes():
+    try:
+        data = json.loads(ROUTES_FILE.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_routes(data):
+    tmp = ROUTES_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1))
+    os.replace(tmp, ROUTES_FILE)
+
+
+@app.get("/routes")
+def list_routes():
+    with routes_lock:
+        return {"routes": sorted(read_routes().keys(), key=str.lower)}
+
+
+@app.get("/routes/{name}")
+def get_route(name: str):
+    with routes_lock:
+        data = read_routes()
+    if name not in data:
+        raise HTTPException(status_code=404, detail="no such route")
+    return data[name]
+
+
+@app.post("/routes")
+async def save_route(request: Request):
+    body = await request.json()
+    name = str(body.get("name", "")).strip()[:60]
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    try:
+        wps = [[float(p[0]), float(p[1])] for p in body.get("waypoints", [])][:200]
+    except (TypeError, ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="bad waypoints")
+    if not wps:
+        raise HTTPException(status_code=400, detail="no waypoints")
+    route = {
+        "waypoints": wps,
+        "alt": clamp(float(body.get("alt", 20)), 2, MAX_ALT),
+        "reverse": bool(body.get("reverse", False)),
+        "rth": bool(body.get("rth", True)),
+        "avoid": body.get("avoid") if body.get("avoid") in ("around", "over", "warn") else "around",
+    }
+    with routes_lock:
+        data = read_routes()
+        existed = name in data
+        data[name] = route
+        write_routes(data)
+    return {"ok": True, "name": name, "updated": existed}
+
+
+@app.delete("/routes/{name}")
+def delete_route(name: str):
+    with routes_lock:
+        data = read_routes()
+        if name not in data:
+            raise HTTPException(status_code=404, detail="no such route")
+        del data[name]
+        write_routes(data)
+    return {"ok": True}
+
+
 @app.get("/popout")
 def popout():
     return FileResponse(BASE / "popout.html")

@@ -138,6 +138,15 @@ label { color:var(--dim); font-size:12px; }
       <label><input type="checkbox" id="reverse"> after the last waypoint, fly back through them in reverse</label>
     </div>
     <div class="row">
+      <select id="routes"></select>
+      <button id="rload">Load</button>
+      <button id="rdel">Delete</button>
+    </div>
+    <div class="row">
+      <input type="text" id="rname" placeholder="route name" maxlength="60">
+      <button id="rsave">Save route</button>
+    </div>
+    <div class="row">
       <label><input type="checkbox" id="bld"> show real buildings (OpenStreetMap)</label>
       <span id="bstat"></span>
       <button id="bclear" title="Forget saved buildings and reload them">Clear cache</button>
@@ -1262,6 +1271,90 @@ map.on("moveend", () => {
   clearTimeout(bldTimer);
   if (bldOn) bldTimer = setTimeout(loadBuildings, 700);
 });
+
+async function refreshRoutes(pick) {
+  try {
+    const r = await (await fetch("/routes")).json();
+    const sel = $("routes");
+    sel.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = r.routes.length ? "saved routes" : "no saved routes";
+    sel.appendChild(first);
+    r.routes.forEach(n => {
+      const o = document.createElement("option");
+      o.value = n;
+      o.textContent = n;
+      sel.appendChild(o);
+    });
+    if (pick) sel.value = pick;
+  } catch (e) {}
+}
+
+$("routes").onchange = () => { if ($("routes").value) $("rname").value = $("routes").value; };
+
+$("rsave").onclick = async () => {
+  const name = $("rname").value.trim();
+  if (!name) return toast("type a name for the route first");
+  if (!wps.length) return toast("click the map to add waypoints first");
+  const body = {
+    name,
+    waypoints: wps,
+    alt: toM(parseFloat($("malt").value)) || 20,
+    reverse: $("reverse").checked,
+    rth: $("rth").checked,
+    avoid: $("avoid").value,
+  };
+  try {
+    const r = await fetch("/routes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error((await r.json()).detail || "HTTP " + r.status);
+    const d = await r.json();
+    toast((d.updated ? "updated route " : "saved route ") + d.name);
+    refreshRoutes(d.name);
+  } catch (e) {
+    toast("save failed: " + e.message);
+  }
+};
+
+$("rload").onclick = async () => {
+  const name = $("routes").value;
+  if (!name) return toast("pick a saved route first");
+  if (curMode === "AUTO") return toast("pause or stop the mission before loading a route");
+  try {
+    const r = await fetch("/routes/" + encodeURIComponent(name));
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    wps.length = 0;
+    d.waypoints.forEach(p => wps.push([p[0], p[1]]));
+    $("malt").value = Math.round(imperial ? d.alt * FT : d.alt);
+    $("reverse").checked = !!d.reverse;
+    $("rth").checked = d.rth !== false;
+    $("avoid").value = d.avoid || "around";
+    $("rname").value = name;
+    redraw();
+    if (wps.length) map.fitBounds(L.latLngBounds(wps), { maxZoom: 18, padding: [40, 40] });
+    toast("loaded route " + name + ", press Start mission to fly it");
+  } catch (e) {
+    toast("load failed: " + e.message);
+  }
+};
+
+$("rdel").onclick = async () => {
+  const name = $("routes").value;
+  if (!name) return toast("pick a saved route first");
+  if (!confirm('Delete route "' + name + '"?')) return;
+  try {
+    const r = await fetch("/routes/" + encodeURIComponent(name), { method: "DELETE" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    toast("deleted route " + name);
+    if ($("rname").value === name) $("rname").value = "";
+    refreshRoutes();
+  } catch (e) {
+    toast("delete failed: " + e.message);
+  }
+};
+
+refreshRoutes();
 
 loadCfg();
 loadPad();
