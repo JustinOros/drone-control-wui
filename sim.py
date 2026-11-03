@@ -124,7 +124,7 @@ class Sim:
             return vn, ve
         if time.time() - self.last_warn > 3:
             self.last_warn = time.time()
-            self.say("Obstacle ahead, stopped")
+            self.say("Collision: the drone would have hit a building")
         return 0.0, 0.0
 
     def say(self, text):

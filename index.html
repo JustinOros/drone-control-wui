@@ -60,6 +60,7 @@ label { color:var(--dim); font-size:12px; }
 #realform input, #realform select { width:100%; }
 #startstatus { color:var(--warn); margin-top:10px; min-height:18px; }
 #bstat { color:var(--dim); font-size:12px; }
+#alert { position:fixed; top:56px; left:calc((100vw - 360px) / 2); transform:translateX(-50%); z-index:1500; background:#8f1d22; color:#fff; border:1px solid var(--bad); border-radius:6px; padding:8px 14px; font-weight:600; display:none; box-shadow:0 2px 8px rgba(0,0,0,.5); }
 #bwarn { color:#ff6b6b; font-size:12px; line-height:1.4; }
 #settings { display:inline-flex; align-items:center; padding:7px 9px; }
 #settingsModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:3000; align-items:center; justify-content:center; }
@@ -97,6 +98,7 @@ label { color:var(--dim); font-size:12px; }
 
 <div id="app">
   <div id="map"></div>
+  <div id="alert"></div>
   <button id="viewbtn" title="Swap the map and the camera">Show camera</button>
   <div id="panel">
     <div class="row" style="justify-content:space-between">
@@ -236,6 +238,8 @@ let holding = false;
 let holdSeen = false;
 let holdAt = 0;
 let curAlt = 0;
+let curHdg = 0;
+let lastGuard = 0;
 let pendingManual = null;
 let missionActive = false;
 let startingUntil = 0;
@@ -374,6 +378,7 @@ function telemetry(m) {
   curMode = d.mode;
   curArmed = d.armed;
   curAlt = d.alt;
+  curHdg = d.heading || 0;
   if (climbing) {
     const over = Date.now() > climbing.until;
     const stalled = !d.armed && Date.now() > climbing.until - 30000;
@@ -868,8 +873,68 @@ setInterval(() => {
     yaw = 0;
     if (up < 0) up = 0;
   }
+  if ((fwd || right) && buildingGuard(fwd, right)) {
+    fwd = 0;
+    right = 0;
+    lastGuard = Date.now();
+    $("alert").textContent = "BUILDING AHEAD, STOPPED";
+    $("alert").style.display = "block";
+  } else if ($("alert").style.display === "block" && Date.now() - lastGuard > 1200) {
+    $("alert").style.display = "none";
+  }
   send({ cmd: "control", fwd: fwd, right: right, up: up, yaw: yaw });
 }, 100);
+
+const GUARD_MARGIN = 6;
+
+function polyDist(x, y, poly) {
+  if (pointInPoly(x, y, poly)) return 0;
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const ax = poly[j][0], ay = poly[j][1], bx = poly[i][0], by = poly[i][1];
+    const dx = bx - ax, dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    best = Math.min(best, Math.hypot(x - (ax + t * dx), y - (ay + t * dy)));
+  }
+  return best;
+}
+
+function buildingGuard(fwd, right) {
+  if (!bldOn || bldCache.size === 0 || !droneMarker) return false;
+  const ll = droneMarker.getLatLng();
+  const kx = 111320 * Math.cos(ll.lat * Math.PI / 180);
+  const hdg = curHdg * Math.PI / 180;
+  const vn = fwd * Math.cos(hdg) - right * Math.sin(hdg);
+  const ve = fwd * Math.sin(hdg) + right * Math.cos(hdg);
+  const spd = Math.hypot(vn, ve);
+  if (!spd) return false;
+  const look = spd * 1.5;
+  const reach = look + GUARD_MARGIN + 20;
+  const dLat = reach / 111320;
+  const dLon = reach / kx;
+  const ux = ve / spd, uy = vn / spd;
+  let hit = false;
+  bldCache.forEach(b => {
+    if (hit || b.h + ROOF_MARGIN <= curAlt) return;
+    if (!b.bb) {
+      const la = b.pts.map(p => p[0]), lo = b.pts.map(p => p[1]);
+      b.bb = [Math.min(...la), Math.max(...la), Math.min(...lo), Math.max(...lo)];
+    }
+    if (ll.lat < b.bb[0] - dLat || ll.lat > b.bb[1] + dLat || ll.lng < b.bb[2] - dLon || ll.lng > b.bb[3] + dLon) return;
+    const poly = b.pts.map(p => [(p[1] - ll.lng) * kx, (p[0] - ll.lat) * 111320]);
+    const d0 = polyDist(0, 0, poly);
+    for (const f of [0.25, 0.5, 0.75, 1]) {
+      const d = polyDist(ux * look * f, uy * look * f, poly);
+      if (d < GUARD_MARGIN && d < d0) {
+        hit = true;
+        return;
+      }
+    }
+  });
+  return hit;
+}
 
 const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 const ROOF_MARGIN = 5;

@@ -59,7 +59,8 @@ Tick **Show real buildings** in the panel and zoom in to level 16 or closer. Bui
 - If no way around is found (for example a waypoint sits inside a building), a warning shows and Start mission asks you to confirm.
 - Detours keep about 8 m of clearance and are only as good as the OpenStreetMap data, so always keep line of sight and watch the drone.
 - The SIM camera draws the buildings as simple 3D boxes (walls and roofs) from the drone's position and heading.
-- In the SIM the buildings are solid. Flying into a wall stops the drone with "Obstacle ahead, stopped". Fly higher than the roof to pass over. The SIM does not plan a path around buildings.
+- Manual flight has a building guard (works in SIM and real flights, while the buildings checkbox is on). The page stops forward and sideways movement when a building taller than your altitude is about 6 m plus 1.5 seconds of travel ahead, and shows a red BUILDING AHEAD, STOPPED banner. Climb, turn and back away still work. It only knows OpenStreetMap footprints and heights, and GPS is not exact, so always keep line of sight.
+- In the SIM the buildings are also solid as a last resort. If the drone ever touches one it stops with "Collision: the drone would have hit a building", which on a real drone would be a crash. The SIM does not plan a path around buildings.
 - Terrain is treated as flat, and only building footprints are used (no trees, wires or terrain).
 - Data is OpenStreetMap contributors, licensed ODbL. The attribution shows on the map when buildings are on. Please respect the Overpass fair-use limits. Loaded areas are cached and requests are debounced.
 - Loaded areas are cached in your browser (about 1 km tiles, kept for 30 days), so reloading the page or restarting the server does not fetch them again. Click **Clear cache** next to the buildings checkbox, or start the server with `python3 server.py --clear-cache`, to forget them and reload fresh data.
