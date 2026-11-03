@@ -47,12 +47,39 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from pymavlink import mavutil
 
 BASE = Path(__file__).parent
-CAPTURES = BASE / "captures"
-CAPTURES.mkdir(exist_ok=True)
+DEFAULT_CAPTURES = BASE / "captures"
+DEFAULT_CAPTURES.mkdir(exist_ok=True)
+SETTINGS_FILE = BASE / "settings.json"
+
+
+def load_settings():
+    try:
+        data = json.loads(SETTINGS_FILE.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+settings = load_settings()
+
+
+def save_settings():
+    tmp = SETTINGS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(settings, indent=1))
+    os.replace(tmp, SETTINGS_FILE)
+
+
+def captures_dir():
+    raw = settings.get("captures_dir") or ""
+    p = Path(raw).expanduser() if raw else DEFAULT_CAPTURES
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise RuntimeError("captures folder is not available: " + str(p))
+    return p
 SIM_CONNECTION = "udpin:0.0.0.0:14550"
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 MAX_ALT = 120.0
@@ -523,7 +550,9 @@ class Video:
             if self.frame is None:
                 return ""
             name = "photo_" + stamp() + ".jpg"
-            cv2.imwrite(str(CAPTURES / name), self.frame)
+            path = captures_dir() / name
+            if not cv2.imwrite(str(path), self.frame):
+                raise RuntimeError("could not write " + str(path))
             return name
 
     def start_recording(self):
@@ -532,8 +561,9 @@ class Video:
                 return ""
             h, w = self.frame.shape[:2]
             name = "video_" + stamp() + ".mp4"
+            path = captures_dir() / name
             self.writer = cv2.VideoWriter(
-                str(CAPTURES / name), cv2.VideoWriter_fourcc(*"mp4v"), 15, (w, h)
+                str(path), cv2.VideoWriter_fourcc(*"mp4v"), 15, (w, h)
             )
             self.size = (w, h)
             self.recording = True
@@ -594,7 +624,72 @@ simproc = SimProcess()
 atexit.register(simproc.stop)
 session = {"mode": ""}
 app = FastAPI()
-app.mount("/captures", StaticFiles(directory=CAPTURES), name="captures")
+
+
+@app.get("/captures/{name}")
+def get_capture(name: str):
+    try:
+        p = captures_dir() / name
+    except RuntimeError:
+        raise HTTPException(status_code=404, detail="captures folder not available")
+    if p.name != name or not p.is_file():
+        raise HTTPException(status_code=404, detail="no such file")
+    return FileResponse(p)
+
+
+def settings_view():
+    raw = settings.get("captures_dir") or ""
+    p = Path(raw).expanduser() if raw else DEFAULT_CAPTURES
+    return {
+        "captures_dir": raw,
+        "effective": str(p),
+        "default": str(DEFAULT_CAPTURES),
+        "available": p.is_dir(),
+    }
+
+
+@app.get("/api/settings")
+def get_settings():
+    return settings_view()
+
+
+@app.post("/api/settings")
+async def set_settings(request: Request):
+    body = await request.json()
+    raw = str(body.get("captures_dir", "")).strip()
+    if video.recording:
+        raise HTTPException(status_code=409, detail="stop the recording before changing the folder")
+    if raw:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            raise HTTPException(status_code=400, detail="use a full path, for example /Volumes/Disk/drone")
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            probe = p / ".dcw_write_test"
+            probe.write_text("ok")
+            probe.unlink()
+        except OSError as e:
+            raise HTTPException(status_code=400, detail="cannot write to that folder: " + str(e))
+    settings["captures_dir"] = raw
+    save_settings()
+    return settings_view()
+
+
+@app.post("/api/choose-folder")
+def choose_folder():
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=400, detail="the folder chooser only works on macOS, type the path instead")
+    script = 'POSIX path of (choose folder with prompt "Choose the folder for pictures and videos")'
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        raise HTTPException(status_code=400, detail="could not open the folder chooser, type the path instead")
+    if r.returncode != 0:
+        return {"path": ""}
+    path = r.stdout.strip()
+    if len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
+    return {"path": path}
 
 
 @app.get("/")
@@ -690,7 +785,12 @@ def gallery():
 @app.get("/api/captures")
 def list_captures():
     files = []
-    for p in CAPTURES.iterdir():
+    try:
+        d = captures_dir()
+        entries = list(d.iterdir())
+    except (RuntimeError, OSError) as e:
+        return {"files": [], "dir": str(settings_view()["effective"]), "error": str(e)}
+    for p in entries:
         ext = p.suffix.lower()
         if ext in (".jpg", ".jpeg", ".png"):
             kind = "photo"
@@ -701,7 +801,7 @@ def list_captures():
         st = p.stat()
         files.append({"name": p.name, "type": kind, "size": st.st_size, "mtime": st.st_mtime})
     files.sort(key=lambda f: f["mtime"], reverse=True)
-    return {"files": files}
+    return {"files": files, "dir": str(d)}
 
 
 @app.get("/popout")

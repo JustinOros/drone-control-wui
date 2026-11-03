@@ -14,7 +14,7 @@ A web UI for flying a drone from your computer. Click waypoints on a map, watch 
 - One button to Start, Pause and Play the mission, also on the Xbox Start button. Turning Manual on during a mission pauses it and the button becomes **Resume**, which climbs straight up to the mission altitude if you are below it, then carries on from the current waypoint instead of restarting the route
 - Manual flight: W/S forward and back, A/D turn left and right, Q/E strafe sideways, Space up, Left Shift down
 - Xbox (or any standard) controller through the browser Gamepad API, laid out like a standard RC controller: sticks, takeoff, land, return to launch, mission pause and play, speed, photo and video
-- Take Picture and Start/Stop Recording, saved to `captures/`. The **Browse** button opens a gallery of everything in `captures/` in a new tab (newest first, filter by pictures or videos, download links). Recordings use the mp4v codec, which some browsers will not play inline, so use Download for those
+- Take Picture and Start/Stop Recording, saved to `captures/`. Change the save folder in Settings (the gear icon), for example to an external disk such as `/Volumes/External/drone-captures`. Type the path or use Choose (macOS), it is remembered in `settings.json` (git-ignored), and the server must not be recording when you change it. If the disk is unplugged, taking a picture or recording shows an error until it is back. The **Browse** button opens a gallery of everything in `captures/` in a new tab (newest first, filter by pictures or videos, download links). Recordings use the mp4v codec, which some browsers will not play inline, so use Download for those
 - Takeoff, Land, Return to Launch, Arm, Disarm
 - Reset the SIM drone to your real GPS location with one button
 - Return home after the last waypoint is on by default. Untick it and the drone hovers at the last waypoint instead (use Land, Return to launch or Manual from there)
@@ -149,7 +149,7 @@ A typical build is about $250 to $450:
 | Xbox A | Take picture |
 | Xbox B | Start or stop recording |
 
-Click the gear icon in the top right of the panel to remap any controller button or stick, switch between Mode 1 and Mode 2 stick layouts, invert an axis, or reset to the defaults above. Mappings are saved in your browser.
+Click the gear icon in the top right of the panel to open Settings, where you can remap any controller button or stick, switch between Mode 1 and Mode 2 stick layouts, invert an axis, or reset to the defaults above. Mappings are saved in your browser.
 
 After a halt the drone hovers and pressing Start again does nothing until you take control (Manual, Takeoff, Land or RTL), so a second press cannot restart something by accident. The on-screen mission button works the same way and shows Hold while an action can be halted.
 

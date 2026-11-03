@@ -10,7 +10,8 @@
 body { margin:0; background:var(--bg); color:var(--text); font:14px system-ui, sans-serif; }
 header { position:sticky; top:0; background:var(--panel); border-bottom:1px solid var(--line); padding:12px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; z-index:5; }
 h1 { margin:0; font-size:18px; }
-#count { color:var(--dim); }
+#count, #dir { color:var(--dim); }
+#dir { font-size:12px; }
 .tabs button { background:#262d37; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
 .tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; padding:16px; }
@@ -25,6 +26,7 @@ h1 { margin:0; font-size:18px; }
 <header>
   <h1>Captures</h1>
   <span id="count"></span>
+  <span id="dir"></span>
   <span class="tabs">
     <button data-f="all" class="on">All</button>
     <button data-f="photo">Pictures</button>
@@ -93,6 +95,8 @@ document.querySelectorAll(".tabs button").forEach(b => {
 
 fetch("/api/captures").then(r => r.json()).then(d => {
   items = d.files;
+  document.getElementById("dir").textContent = d.dir || "";
+  if (d.error) document.getElementById("empty").textContent = d.error;
   render();
 });
 </script>
