@@ -315,12 +315,12 @@ class Vehicle:
                 )
         raise RuntimeError("mission upload timed out")
 
-    def update_mission(self, wps, alt, rth=True):
+    def update_mission(self, wps, alt, rth=True, takeoff=False):
         if not wps:
             raise RuntimeError("no waypoints")
         self.set_mode("LOITER")
         time.sleep(0.4)
-        self.upload_mission(wps, alt, rth, takeoff=False)
+        self.upload_mission(wps, alt, rth, takeoff=takeoff)
         ts = self.link.target_system
         tc = self.link.target_component
         with self.lock:
@@ -797,7 +797,7 @@ async def handle(msg):
         wps = [(float(p[0]), float(p[1])) for p in msg.get("waypoints", [])]
         rth = bool(msg.get("rth", True))
         vehicle.mode_gen += 1
-        await asyncio.to_thread(vehicle.update_mission, wps, msg.get("alt", 20), rth)
+        await asyncio.to_thread(vehicle.update_mission, wps, msg.get("alt", 20), rth, bool(msg.get("takeoff", False)))
         return {"type": "ok", "message": "mission updated, {} waypoints left".format(len(wps))}
     if cmd == "photo":
         name = video.photo()

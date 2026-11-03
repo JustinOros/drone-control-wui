@@ -516,6 +516,14 @@ function missionToggle() {
     resumable = false;
     startingUntil = 0;
     setManual(false);
+    if (sent && curAlt < sent.alt - 1) {
+      const list = combined(sent.fwd, sent.reverse);
+      const a = Math.max(0, Math.min(list.length - 1, sent.base + curWp - sent.offset));
+      sent.base = a;
+      sent.offset = 2;
+      toast("climbing to mission altitude before resuming");
+      return send({ cmd: "mission_update", waypoints: list.slice(a), rth: sent.rth, alt: sent.alt, takeoff: true });
+    }
     return send({ cmd: "mode", mode: "AUTO" });
   }
   if (holding && curMode === "LOITER") return toast("holding position, use Manual, Takeoff, Land or RTL to continue");
@@ -1278,7 +1286,7 @@ function checkMission() {
     const need = pathHits(start && $("rth").checked ? flat.concat([flat[0]]) : flat, 0).reduce((m, b) => Math.max(m, b.h + ROOF_MARGIN), 0);
     if (need > alt) {
       alt = Math.min(120, Math.ceil(need));
-      note = "Mission altitude raised to " + fmtLen(alt) + " to clear the buildings on the path.";
+      note = "The mission will fly at " + fmtLen(alt) + " instead of " + fmtLen(baseAlt) + " to clear the buildings on the path.";
       if (need > 120) failed = true;
     }
   } else if (mode === "around") {
