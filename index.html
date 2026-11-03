@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>drone-control-wui</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root { --bg:#12151a; --panel:#1b2027; --line:#2c333d; --text:#e6e9ee; --dim:#8b95a3; --accent:#3d9bff; --warn:#ff9800; --bad:#e5484d; --good:#30a46c; }
+* { box-sizing: border-box; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:14px system-ui, sans-serif; }
+#app { display:grid; grid-template-columns:1fr 360px; height:100%; }
+#map { height:100%; }
+#panel { background:var(--panel); border-left:1px solid var(--line); overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
+#video { width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; object-fit:contain; }
+#camwrap { position:relative; background:#000; border-radius:6px; }
+#camtools { position:absolute; right:6px; bottom:6px; display:flex; gap:6px; opacity:.85; }
+#camtools button { padding:5px 8px; font-size:12px; background:rgba(38,45,55,.9); }
+#camwrap:fullscreen { display:flex; align-items:center; justify-content:center; border-radius:0; }
+#camwrap:fullscreen #video { width:100%; height:100%; aspect-ratio:auto; border-radius:0; }
+#camwrap:-webkit-full-screen { display:flex; align-items:center; justify-content:center; border-radius:0; }
+#camwrap:-webkit-full-screen #video { width:100%; height:100%; aspect-ratio:auto; border-radius:0; }
+.row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+button { background:#262d37; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px 10px; cursor:pointer; font:inherit; }
+button:hover { border-color:var(--accent); }
+button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+button.danger { background:#3a1d20; border-color:var(--bad); }
+button.go { background:#17352a; border-color:var(--good); }
+button:disabled { opacity:.5; cursor:default; }
+input, select { background:#10141a; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 8px; font:inherit; }
+input[type=number] { width:70px; }
+label { color:var(--dim); font-size:12px; }
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.cell { background:#10141a; border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+.cell b { display:block; font-size:16px; }
+.cell span { color:var(--dim); font-size:11px; }
+#badge { font-weight:600; padding:3px 8px; border-radius:4px; background:var(--accent); color:#fff; }
+#badge.real { background:var(--bad); }
+#toast { min-height:18px; color:var(--warn); font-size:13px; }
+#hint { color:var(--dim); font-size:12px; line-height:1.5; }
+.wp { background:var(--warn); color:#000; border-radius:50%; width:24px; height:24px; line-height:24px; text-align:center; font-weight:700; border:2px solid #fff; }
+.drone .arrow { font-size:26px; color:#3dff9b; text-shadow:0 0 4px #000; transform-origin:50% 55%; line-height:26px; text-align:center; }
+#start { position:fixed; inset:0; background:rgba(10,12,16,.96); z-index:2000; display:flex; align-items:center; justify-content:center; }
+#startbox { width:min(520px,92vw); background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:24px; }
+#startbox h1 { margin:0 0 4px; font-size:22px; }
+#startbox p { color:var(--dim); margin:0 0 18px; }
+.big { width:100%; padding:16px; font-size:16px; margin-bottom:10px; }
+#realform { display:none; margin-top:6px; }
+#realform .f { display:grid; grid-template-columns:90px 1fr; gap:6px; margin-bottom:8px; align-items:center; }
+#realform input, #realform select { width:100%; }
+#startstatus { color:var(--warn); margin-top:10px; min-height:18px; }
+#settings { display:inline-flex; align-items:center; padding:7px 9px; }
+#settingsModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:3000; align-items:center; justify-content:center; }
+#settingsBox { width:min(620px,94vw); max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+#settingsBox h2 { margin:0; font-size:18px; }
+#settingsBox h3 { margin:16px 0 6px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em; }
+#padStatus { color:var(--warn); font-size:13px; margin-top:8px; }
+.prow { display:grid; grid-template-columns:1fr 150px auto auto; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid var(--line); }
+.prow b { font-weight:600; }
+.prow label { white-space:nowrap; }
+.note { color:var(--dim); font-size:12px; line-height:1.5; }
+@media (max-width:800px) { #app { grid-template-columns:1fr; grid-template-rows:50% 50%; } }
+</style>
+</head>
+<body>
+<div id="start">
+  <div id="startbox">
+    <h1>drone-control-wui</h1>
+    <p>Choose how to fly.</p>
+    <button class="big go" id="simBtn">Fly with SIM</button>
+    <button class="big danger" id="realBtn">Real flight</button>
+    <div id="realform">
+      <div class="f"><label>Link</label>
+        <select id="link"><option value="wifi">WiFi (close range)</option><option value="lte">4G LTE (long range)</option></select>
+      </div>
+      <div class="f"><label>WiFi MAVLink</label><input id="wificonn" value="udpin:0.0.0.0:14550"></div>
+      <div class="f"><label>WiFi video</label><input id="wifivideo" placeholder="rtsp://192.168.4.1:8554/cam"></div>
+      <div class="f"><label>LTE MAVLink</label><input id="lteconn" placeholder="tcp:your-relay-host:5760"></div>
+      <div class="f"><label>LTE video</label><input id="ltevideo" placeholder="rtsp://your-relay-host:8554/cam"></div>
+      <button class="big danger" id="connectReal">Connect to real drone</button>
+    </div>
+    <div id="startstatus"></div>
+  </div>
+</div>
+
+<div id="app">
+  <div id="map"></div>
+  <div id="panel">
+    <div class="row" style="justify-content:space-between">
+      <span id="badge">OFFLINE</span>
+      <label><input type="checkbox" id="follow"> follow</label>
+      <button id="units" title="Switch between Metric and Imperial">Metric</button>
+      <button id="settings" title="Controller settings" aria-label="Controller settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></button>
+      <button id="disconnect">Disconnect</button>
+    </div>
+    <div id="camwrap">
+      <img id="video" alt="drone camera">
+      <div id="camtools">
+        <button id="popout" title="Open the camera in its own window">Popout</button>
+        <button id="fullscreen" title="Fullscreen (or double-click the video)">Fullscreen</button>
+      </div>
+    </div>
+    <div class="row">
+      <button id="photo">Take picture</button>
+      <button id="record">Start recording</button>
+      <span id="lastcap"></span>
+    </div>
+    <div class="grid">
+      <div class="cell"><span>Mode</span><b id="tMode">-</b></div>
+      <div class="cell"><span>Armed</span><b id="tArmed">-</b></div>
+      <div class="cell"><span>Altitude</span><b id="tAlt">-</b></div>
+      <div class="cell"><span>Speed</span><b id="tSpd">-</b></div>
+      <div class="cell"><span>Heading</span><b id="tHdg">-</b></div>
+      <div class="cell"><span>Battery</span><b id="tBat">-</b></div>
+      <div class="cell"><span>GPS sats</span><b id="tGps">-</b></div>
+      <div class="cell"><span>Waypoint</span><b id="tWp">-</b></div>
+      <div class="cell"><span>Waypoints set</span><b id="wpcount">0</b></div>
+    </div>
+    <div class="row">
+      <button id="arm">Arm</button>
+      <button id="disarm">Disarm</button>
+      <label id="lblTalt">alt (m)</label><input type="number" id="talt" value="10" min="2" max="120">
+      <button id="takeoff" class="go">Takeoff</button>
+      <button id="land">Land</button>
+      <button id="rtl">RTL</button>
+    </div>
+    <div class="row">
+      <label id="lblMalt">Mission alt (m)</label><input type="number" id="malt" value="20" min="2" max="120">
+      <button id="mission" class="go">Start mission</button>
+      <button id="clear">Clear waypoints</button>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="reverse"> after the last waypoint, fly back through them in reverse</label>
+    </div>
+    <div class="row">
+      <button id="manual">Manual: OFF</button>
+      <label id="lblSpeed">Speed (m/s)</label><input type="number" id="speed" value="3" min="1" max="8" step="0.5">
+    </div>
+    <div class="row" id="simrow">
+      <button id="simloc">Reset SIM to my GPS</button>
+    </div>
+    <div id="toast"></div>
+    <div id="hint">
+      Click the map to add waypoints, click a waypoint to remove it.<br>
+      Manual mode: W/S forward and back, A/D strafe, Q/E yaw, Space up, Left Shift down.<br>
+      Xbox (default layout, change it with the gear icon): left stick climb, descend and yaw, right stick move. Y takeoff, X land, Back return to launch, Start pause or play the mission, L3 manual on or off, LB/RB speed, A picture, B record.
+    </div>
+  </div>
+</div>
+
+<div id="settingsModal">
+  <div id="settingsBox">
+    <div class="row" style="justify-content:space-between">
+      <h2>Controller settings</h2>
+      <button id="settingsClose">Close</button>
+    </div>
+    <div id="padStatus"></div>
+    <h3>Buttons</h3>
+    <div id="padButtons"></div>
+    <h3>Sticks</h3>
+    <div id="padAxes"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="padMode2">Stick layout: Mode 2 (default)</button>
+      <button id="padMode1">Stick layout: Mode 1</button>
+      <button id="padReset" class="danger">Reset all to defaults</button>
+    </div>
+    <p class="note">Click Remap, then press the button or push the stick on your controller. Pressing a button that is already used moves it to this action. Flight controls from the controller are paused while this window is open. Settings are saved in your browser.</p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const keys = new Set();
+const wps = [];
+let ws = null;
+let manual = false;
+let recording = false;
+let wpMarkers = [];
+let poly = null;
+let droneMarker = null;
+let centered = false;
+let prevPad = {};
+let toastTimer = null;
+let lastMsgId = 0;
+const GROUND_ALT = 0.5;
+let lastGroundWarn = 0;
+let settingsOpen = false;
+let capture = null;
+let padCfg = defaultPad();
+let curMode = "";
+let curArmed = false;
+let climbing = null;
+let holding = false;
+let holdSeen = false;
+let holdAt = 0;
+let curAlt = 0;
+let pendingManual = null;
+let missionActive = false;
+let startingUntil = 0;
+let imperial = false;
+const FT = 3.28084;
+const MPH = 2.23694;
+
+function toM(v) { return imperial ? v / FT : v; }
+function toMs(v) { return imperial ? v / MPH : v; }
+
+function applyUnits(convert) {
+  if (convert) {
+    const f = imperial ? FT : 1 / FT;
+    const g = imperial ? MPH : 1 / MPH;
+    $("talt").value = Math.round((parseFloat($("talt").value) || 0) * f);
+    $("malt").value = Math.round((parseFloat($("malt").value) || 0) * f);
+    const s = (parseFloat($("speed").value) || 0) * g;
+    $("speed").value = imperial ? Math.round(s) : Math.round(s * 2) / 2;
+  }
+  $("lblTalt").textContent = imperial ? "alt (ft)" : "alt (m)";
+  $("lblMalt").textContent = imperial ? "Mission alt (ft)" : "Mission alt (m)";
+  $("lblSpeed").textContent = imperial ? "Speed (mph)" : "Speed (m/s)";
+  $("talt").min = imperial ? 7 : 2;
+  $("talt").max = imperial ? 394 : 120;
+  $("malt").min = imperial ? 7 : 2;
+  $("malt").max = imperial ? 394 : 120;
+  $("speed").min = imperial ? 2 : 1;
+  $("speed").max = imperial ? 18 : 8;
+  $("speed").step = imperial ? 1 : 0.5;
+  $("units").textContent = imperial ? "Imperial" : "Metric";
+  send({ cmd: "units", imperial: imperial });
+}
+
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "OpenStreetMap" });
+const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Esri" });
+const map = L.map("map", { layers: [sat] }).setView([20, 0], 2);
+L.control.layers({ Satellite: sat, Streets: osm }).addTo(map);
+
+function toast(text) {
+  $("toast").textContent = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 6000);
+}
+
+function send(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function redraw() {
+  wpMarkers.forEach(m => m.remove());
+  wpMarkers = wps.map((p, i) => {
+    const m = L.marker(p, { icon: L.divIcon({ className: "", html: '<div class="wp">' + (i + 1) + "</div>", iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(map);
+    m.on("click", ev => { L.DomEvent.stopPropagation(ev); wps.splice(i, 1); redraw(); });
+    return m;
+  });
+  if (poly) poly.remove();
+  poly = L.polyline(wps, { color: "#ff9800", weight: 3 }).addTo(map);
+  $("wpcount").textContent = wps.length;
+}
+
+map.on("click", e => { wps.push([e.latlng.lat, e.latlng.lng]); redraw(); });
+
+function saveCfg() {
+  try {
+    const cfg = {};
+    ["link", "wificonn", "wifivideo", "lteconn", "ltevideo"].forEach(id => { cfg[id] = $(id).value; });
+    localStorage.setItem("dcw", JSON.stringify(cfg));
+  } catch (e) {}
+}
+
+function loadCfg() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem("dcw") || "{}");
+    Object.keys(cfg).forEach(id => { if ($(id)) $(id).value = cfg[id]; });
+  } catch (e) {}
+}
+
+function setBusy(text) {
+  $("startstatus").textContent = text || "";
+  ["simBtn", "realBtn", "connectReal"].forEach(id => { $(id).disabled = !!text; });
+}
+
+function showApp(mode) {
+  $("start").style.display = "none";
+  setBusy("");
+  $("video").src = "/video?" + Date.now();
+  $("badge").textContent = mode === "sim" ? "SIM" : "REAL";
+  $("badge").className = mode === "sim" ? "" : "real";
+  $("simrow").style.display = mode === "sim" ? "" : "none";
+  send({ cmd: "units", imperial: imperial });
+}
+
+function showStart() {
+  $("start").style.display = "flex";
+  $("video").removeAttribute("src");
+  $("badge").textContent = "OFFLINE";
+  manual = false;
+  $("manual").textContent = "Manual: OFF";
+  $("manual").classList.remove("on");
+  centered = false;
+  setBusy("");
+}
+
+function openWs() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "telemetry") return telemetry(m);
+    if (m.type === "connected") return showApp(m.mode);
+    if (m.type === "disconnected") return showStart();
+    if (m.type === "capture") {
+      $("lastcap").innerHTML = '<a style="color:#3d9bff" target="_blank" href="' + m.file + '">last picture</a>';
+      return toast("picture saved");
+    }
+    if (m.type === "ok") return toast(m.message);
+    if (m.type === "error") {
+      startingUntil = 0;
+      missionActive = false;
+      pendingManual = null;
+      setBusy("");
+      toast(m.message);
+      if ($("start").style.display !== "none") $("startstatus").textContent = m.message;
+    }
+  };
+  ws.onclose = () => setTimeout(openWs, 1000);
+}
+
+function telemetry(m) {
+  const d = m.data;
+  if (d.connected && $("start").style.display !== "none") showApp(m.session.mode);
+  recording = m.recording;
+  $("record").textContent = recording ? "Stop recording" : "Start recording";
+  $("record").classList.toggle("on", recording);
+  curMode = d.mode;
+  curArmed = d.armed;
+  curAlt = d.alt;
+  if (climbing) {
+    const over = Date.now() > climbing.until;
+    const stalled = !d.armed && Date.now() > climbing.until - 30000;
+    if (d.alt >= climbing.alt - 0.5 || over || stalled || ["LAND", "RTL", "AUTO", "LOITER"].includes(d.mode)) climbing = null;
+  }
+  if (holding) {
+    if (d.mode === "LOITER") holdSeen = true;
+    else if (holdSeen || Date.now() - holdAt > 3000) holding = false;
+  }
+  if (pendingManual) {
+    if (d.armed && d.alt >= pendingManual.alt - 0.5) {
+      pendingManual = null;
+      setManual(true);
+    } else if (Date.now() > pendingManual.until) {
+      pendingManual = null;
+    }
+  }
+  const starting = Date.now() < startingUntil;
+  if (d.mode === "AUTO") {
+    startingUntil = 0;
+    missionActive = true;
+  } else if (!starting && (!d.armed || d.mode !== "LOITER")) {
+    missionActive = false;
+  }
+  let label = "Start mission";
+  if (d.mode === "AUTO") label = "Pause";
+  else if (((d.mode === "LAND" || d.mode === "RTL") && d.armed) || climbing) label = "Hold";
+  else if (holding && d.mode === "LOITER") label = "Holding";
+  else if (missionActive && d.mode === "LOITER") label = "Play";
+  else if (starting) label = "Starting ...";
+  $("mission").textContent = label;
+  $("mission").className = label === "Pause" ? "" : "go";
+  $("tMode").textContent = d.mode || "-";
+  $("tArmed").textContent = d.armed ? "YES" : "no";
+  $("tAlt").textContent = imperial ? Math.round(d.alt * FT) + " ft" : d.alt.toFixed(1) + " m";
+  $("tSpd").textContent = imperial ? (d.groundspeed * MPH).toFixed(1) + " mph" : d.groundspeed.toFixed(1) + " m/s";
+  $("tHdg").textContent = d.heading + " deg";
+  $("tBat").textContent = d.battery === null ? (d.voltage ? d.voltage + " V" : "-") : d.battery + "%";
+  $("tGps").textContent = d.sats + " (fix " + d.fix + ")";
+  $("tWp").textContent = d.wp;
+  if (d.msg_id !== lastMsgId) {
+    lastMsgId = d.msg_id;
+    if (d.msg) toast(d.msg);
+  }
+  if (d.lat !== null && d.lon !== null) {
+    const pos = [d.lat, d.lon];
+    if (!droneMarker) {
+      droneMarker = L.marker(pos, { icon: L.divIcon({ className: "drone", html: '<div class="arrow">&#9650;</div>', iconSize: [26, 26], iconAnchor: [13, 13] }), zIndexOffset: 1000 }).addTo(map);
+    } else {
+      droneMarker.setLatLng(pos);
+    }
+    const arrow = droneMarker.getElement() && droneMarker.getElement().querySelector(".arrow");
+    if (arrow) arrow.style.transform = "rotate(" + d.heading + "deg)";
+    if (!centered) {
+      map.setView(pos, 17);
+      centered = true;
+    } else if ($("follow").checked) {
+      map.panTo(pos, { animate: false });
+    }
+  }
+}
+
+$("simBtn").onclick = () => {
+  setBusy("Starting simulator ...");
+  send({ cmd: "connect", mode: "sim" });
+};
+
+$("realBtn").onclick = () => {
+  $("realform").style.display = "block";
+  $("realBtn").style.display = "none";
+};
+
+$("connectReal").onclick = () => {
+  const link = $("link").value;
+  const conn = $(link + "conn").value.trim();
+  const video = $(link + "video").value.trim();
+  if (!conn) { $("startstatus").textContent = "Enter the MAVLink connection for this link"; return; }
+  if (!confirm("REAL FLIGHT. Props clear, area clear, failsafes configured. Continue?")) return;
+  saveCfg();
+  setBusy("Connecting over " + (link === "wifi" ? "WiFi" : "4G LTE") + " ...");
+  send({ cmd: "connect", mode: "real", conn: conn, video: video });
+};
+
+$("disconnect").onclick = () => send({ cmd: "disconnect" });
+$("arm").onclick = () => send({ cmd: "arm" });
+$("disarm").onclick = () => { if (confirm("Disarm now? Motors will stop.")) send({ cmd: "disarm" }); };
+$("takeoff").onclick = () => {
+  const alt = toM(parseFloat($("talt").value)) || 10;
+  climbing = { alt: alt, until: Date.now() + 40000 };
+  send({ cmd: "takeoff", alt: alt });
+};
+$("units").onclick = () => {
+  imperial = !imperial;
+  try { localStorage.setItem("dcw_units", imperial ? "imperial" : "metric"); } catch (e) {}
+  applyUnits(true);
+};
+$("land").onclick = () => send({ cmd: "land" });
+$("rtl").onclick = () => send({ cmd: "rtl" });
+$("clear").onclick = () => { wps.length = 0; redraw(); };
+$("photo").onclick = () => send({ cmd: "photo" });
+$("record").onclick = () => send({ cmd: "record", on: !recording });
+function haltAction() {
+  pendingManual = null;
+  climbing = null;
+  missionActive = false;
+  startingUntil = 0;
+  holding = true;
+  holdSeen = false;
+  holdAt = Date.now();
+  setManual(false);
+  send({ cmd: "mode", mode: "LOITER" });
+  toast("halted, holding position");
+}
+
+function missionToggle() {
+  if (curMode === "AUTO") return send({ cmd: "mode", mode: "LOITER" });
+  const busy = ((curMode === "LAND" || curMode === "RTL") && curArmed) || climbing || Date.now() < startingUntil;
+  if (busy) return haltAction();
+  if (holding && curMode === "LOITER") return toast("holding position, use Manual, Takeoff, Land or RTL to continue");
+  if (missionActive && curMode === "LOITER") return send({ cmd: "mode", mode: "AUTO" });
+  if (Date.now() < startingUntil) return;
+  if (!wps.length) return toast("click the map to add waypoints first");
+  missionActive = true;
+  startingUntil = Date.now() + 30000;
+  send({ cmd: "mission", waypoints: wps, reverse: $("reverse").checked, alt: toM(parseFloat($("malt").value)) || 20 });
+}
+
+$("mission").onclick = missionToggle;
+
+function setManual(on) {
+  manual = on;
+  $("manual").textContent = "Manual: " + (on ? "ON" : "OFF");
+  $("manual").classList.toggle("on", on);
+  if (on) send({ cmd: "mode", mode: "GUIDED" });
+  else send({ cmd: "control", fwd: 0, right: 0, up: 0, yaw: 0 });
+}
+
+$("manual").onclick = () => setManual(!manual);
+
+function toggleFullscreen() {
+  const el = $("camwrap");
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (el.requestFullscreen) el.requestFullscreen();
+}
+
+$("fullscreen").onclick = toggleFullscreen;
+$("video").ondblclick = toggleFullscreen;
+document.addEventListener("fullscreenchange", () => {
+  $("fullscreen").textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+});
+
+$("popout").onclick = () => {
+  const w = window.open("/popout", "dcw-camera", "popup,width=960,height=540");
+  if (!w) toast("popup blocked, allow popups for this site");
+};
+
+$("simloc").onclick = () => {
+  if (!navigator.geolocation) return toast("this browser has no geolocation");
+  toast("getting your GPS position ...");
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      send({ cmd: "simloc", lat: p.coords.latitude, lon: p.coords.longitude });
+      wps.length = 0;
+      redraw();
+      centered = false;
+    },
+    err => toast("GPS failed: " + err.message),
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
+};
+
+window.addEventListener("keydown", e => {
+  if (settingsOpen) {
+    if (e.code === "Escape") {
+      if (capture) {
+        capture = null;
+        renderSettings();
+      } else {
+        closeSettings();
+      }
+    }
+    return;
+  }
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (manual && ["Space", "ShiftLeft", "KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"].includes(e.code)) e.preventDefault();
+  keys.add(e.code);
+});
+window.addEventListener("keyup", e => keys.delete(e.code));
+window.addEventListener("blur", () => keys.clear());
+
+function stick(v) {
+  const dz = 0.12;
+  const a = Math.abs(v);
+  if (a < dz) return 0;
+  const n = (a - dz) / (1 - dz);
+  return Math.sign(v) * (0.4 * n + 0.6 * n * n * n);
+}
+
+function bumpSpeed(dir) {
+  const el = $("speed");
+  const step = imperial ? 1 : 0.5;
+  const lo = imperial ? 2 : 1;
+  const hi = imperial ? 18 : 8;
+  const v = Math.min(hi, Math.max(lo, (parseFloat(el.value) || lo) + dir * step));
+  el.value = v;
+  toast("speed " + v + (imperial ? " mph" : " m/s"));
+}
+
+function padTakeoff() {
+  if (curAlt > 1) return toast("already airborne");
+  const alt = toM(parseFloat($("talt").value)) || 10;
+  setManual(false);
+  send({ cmd: "takeoff", alt: alt });
+  pendingManual = { alt: alt, until: Date.now() + 40000 };
+  climbing = { alt: alt, until: Date.now() + 40000 };
+  toast("taking off");
+}
+
+function padStop(cmd) {
+  pendingManual = null;
+  setManual(false);
+  send({ cmd: cmd });
+}
+
+const BTN_NAMES = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "Back", "Start", "L3", "R3", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Home"];
+const AXIS_NAMES = ["Left stick X", "Left stick Y", "Right stick X", "Right stick Y"];
+const PAD_ACTIONS = [
+  ["takeoff", "Takeoff"],
+  ["land", "Land"],
+  ["rtl", "Return to launch"],
+  ["mission", "Start, pause or play mission"],
+  ["manual", "Manual on or off"],
+  ["speedDown", "Speed down"],
+  ["speedUp", "Speed up"],
+  ["photo", "Take picture"],
+  ["record", "Start or stop recording"]
+];
+const PAD_AXES = [
+  ["up", "Climb and descend", "up"],
+  ["yaw", "Yaw", "right"],
+  ["fwd", "Forward and back", "up"],
+  ["right", "Strafe left and right", "right"]
+];
+
+function defaultPad() {
+  return {
+    buttons: { photo: 0, record: 1, land: 2, takeoff: 3, speedDown: 4, speedUp: 5, rtl: 8, mission: 9, manual: 10 },
+    axes: {
+      up: { i: 1, inv: true },
+      yaw: { i: 0, inv: false },
+      fwd: { i: 3, inv: true },
+      right: { i: 2, inv: false }
+    }
+  };
+}
+
+function mode1Axes() {
+  return {
+    up: { i: 3, inv: true },
+    yaw: { i: 0, inv: false },
+    fwd: { i: 1, inv: true },
+    right: { i: 2, inv: false }
+  };
+}
+
+function loadPad() {
+  padCfg = defaultPad();
+  try {
+    const c = JSON.parse(localStorage.getItem("dcw_pad") || "null");
+    if (c && c.buttons) Object.assign(padCfg.buttons, c.buttons);
+    if (c && c.axes) {
+      for (const k in c.axes) {
+        if (padCfg.axes[k]) Object.assign(padCfg.axes[k], c.axes[k]);
+      }
+    }
+  } catch (e) {}
+}
+
+function savePad() {
+  try { localStorage.setItem("dcw_pad", JSON.stringify(padCfg)); } catch (e) {}
+}
+
+const padActions = {
+  photo: () => send({ cmd: "photo" }),
+  record: () => send({ cmd: "record", on: !recording }),
+  land: () => padStop("land"),
+  takeoff: () => padTakeoff(),
+  speedDown: () => bumpSpeed(-1),
+  speedUp: () => bumpSpeed(1),
+  rtl: () => padStop("rtl"),
+  mission: () => missionToggle(),
+  manual: () => setManual(!manual)
+};
+
+function findPad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  return Array.from(pads).find(p => p && p.connected);
+}
+
+function padEdge(gp, i) {
+  const now = !!(gp.buttons[i] && gp.buttons[i].pressed);
+  const was = !!prevPad[i];
+  prevPad[i] = now;
+  return now && !was;
+}
+
+function padAxis(gp, a) {
+  const v = stick(gp.axes[a.i] || 0);
+  return a.inv ? -v : v;
+}
+
+function pollPad() {
+  const gp = findPad();
+  if (!gp) return null;
+  if (settingsOpen) {
+    padCapture(gp);
+    return null;
+  }
+  for (const key in padCfg.buttons) {
+    const i = padCfg.buttons[key];
+    if (i !== null && i !== undefined && padEdge(gp, i)) padActions[key]();
+  }
+  return {
+    up: padAxis(gp, padCfg.axes.up),
+    yaw: padAxis(gp, padCfg.axes.yaw),
+    fwd: padAxis(gp, padCfg.axes.fwd),
+    right: padAxis(gp, padCfg.axes.right)
+  };
+}
+
+function btnName(i) {
+  if (i === null || i === undefined) return "not set";
+  return BTN_NAMES[i] || "Button " + i;
+}
+
+function axisName(i) {
+  return AXIS_NAMES[i] || "Axis " + i;
+}
+
+function renderSettings() {
+  const gp = findPad();
+  $("padStatus").textContent = gp ? "Controller: " + gp.id : "No controller detected. Connect one and press any button.";
+  let h = "";
+  PAD_ACTIONS.forEach(([key, label]) => {
+    const cap = capture && capture.kind === "button" && capture.key === key;
+    h += '<div class="prow"><span>' + label + "</span><b>" + (cap ? "press a button ..." : btnName(padCfg.buttons[key])) + "</b>" +
+      '<button data-act="rb" data-key="' + key + '">' + (cap ? "Cancel" : "Remap") + "</button>" +
+      '<button data-act="cb" data-key="' + key + '">Clear</button></div>';
+  });
+  $("padButtons").innerHTML = h;
+  h = "";
+  PAD_AXES.forEach(([key, label, dir]) => {
+    const cap = capture && capture.kind === "axis" && capture.key === key;
+    const a = padCfg.axes[key];
+    h += '<div class="prow"><span>' + label + "</span><b>" + (cap ? "push the stick " + dir + " ..." : axisName(a.i)) + "</b>" +
+      '<button data-act="ra" data-key="' + key + '">' + (cap ? "Cancel" : "Remap") + "</button>" +
+      '<label><input type="checkbox" data-act="inv" data-key="' + key + '"' + (a.inv ? " checked" : "") + "> invert</label></div>";
+  });
+  $("padAxes").innerHTML = h;
+}
+
+function padCapture(gp) {
+  gp.buttons.forEach((b, i) => {
+    const now = !!b.pressed;
+    const was = !!prevPad[i];
+    prevPad[i] = now;
+    if (capture && capture.kind === "button" && now && !was) assignButton(capture.key, i);
+  });
+  if (capture && capture.kind === "axis") {
+    for (let i = 0; i < gp.axes.length; i++) {
+      if (Math.abs(gp.axes[i]) > 0.7) {
+        assignAxis(capture.key, i, gp.axes[i]);
+        break;
+      }
+    }
+  }
+}
+
+function assignButton(key, i) {
+  for (const k in padCfg.buttons) {
+    if (k !== key && padCfg.buttons[k] === i) padCfg.buttons[k] = null;
+  }
+  padCfg.buttons[key] = i;
+  capture = null;
+  savePad();
+  renderSettings();
+}
+
+function assignAxis(key, i, v) {
+  const old = padCfg.axes[key].i;
+  for (const k in padCfg.axes) {
+    if (k !== key && padCfg.axes[k].i === i) padCfg.axes[k].i = old;
+  }
+  padCfg.axes[key].i = i;
+  padCfg.axes[key].inv = v < 0;
+  capture = null;
+  savePad();
+  renderSettings();
+}
+
+function openSettings() {
+  settingsOpen = true;
+  capture = null;
+  $("settingsModal").style.display = "flex";
+  renderSettings();
+}
+
+function closeSettings() {
+  settingsOpen = false;
+  capture = null;
+  $("settingsModal").style.display = "none";
+}
+
+$("settings").onclick = openSettings;
+$("settingsClose").onclick = closeSettings;
+$("padReset").onclick = () => {
+  padCfg = defaultPad();
+  capture = null;
+  savePad();
+  renderSettings();
+};
+$("padMode1").onclick = () => {
+  padCfg.axes = mode1Axes();
+  capture = null;
+  savePad();
+  renderSettings();
+};
+$("padMode2").onclick = () => {
+  padCfg.axes = defaultPad().axes;
+  capture = null;
+  savePad();
+  renderSettings();
+};
+$("settingsModal").addEventListener("click", e => {
+  if (e.target === $("settingsModal")) return closeSettings();
+  const t = e.target.closest("[data-act]");
+  if (!t) return;
+  const key = t.dataset.key;
+  const act = t.dataset.act;
+  if (act === "rb") capture = capture && capture.key === key ? null : { kind: "button", key: key };
+  if (act === "ra") capture = capture && capture.key === key ? null : { kind: "axis", key: key };
+  if (act === "cb") {
+    padCfg.buttons[key] = null;
+    capture = null;
+    savePad();
+  }
+  if (act === "inv") {
+    padCfg.axes[key].inv = t.checked;
+    savePad();
+  }
+  renderSettings();
+});
+
+window.addEventListener("gamepadconnected", e => {
+  toast("controller connected: " + e.gamepad.id);
+  if (settingsOpen) renderSettings();
+});
+window.addEventListener("gamepaddisconnected", () => {
+  toast("controller disconnected");
+  if (settingsOpen) renderSettings();
+});
+
+setInterval(() => {
+  const pad = pollPad();
+  if (!manual) return;
+  const sp = toMs(parseFloat($("speed").value)) || 3;
+  let fwd = 0, right = 0, up = 0, yaw = 0;
+  if (keys.has("KeyW")) fwd += sp;
+  if (keys.has("KeyS")) fwd -= sp;
+  if (keys.has("KeyD")) right += sp;
+  if (keys.has("KeyA")) right -= sp;
+  if (keys.has("Space")) up += sp / 2;
+  if (keys.has("ShiftLeft")) up -= sp / 2;
+  if (keys.has("KeyE")) yaw += 45;
+  if (keys.has("KeyQ")) yaw -= 45;
+  if (pad) {
+    fwd += pad.fwd * sp;
+    right += pad.right * sp;
+    up += pad.up * sp / 2;
+    yaw += pad.yaw * 60;
+  }
+  if (curAlt < GROUND_ALT) {
+    if ((fwd || right || yaw) && Date.now() - lastGroundWarn > 3000) {
+      lastGroundWarn = Date.now();
+      toast("on the ground: climb first, steering is disabled");
+    }
+    fwd = 0;
+    right = 0;
+    yaw = 0;
+    if (up < 0) up = 0;
+  }
+  send({ cmd: "control", fwd: fwd, right: right, up: up, yaw: yaw });
+}, 100);
+
+loadCfg();
+loadPad();
+try { imperial = localStorage.getItem("dcw_units") === "imperial"; } catch (e) {}
+if (imperial) applyUnits(true);
+openWs();
+</script>
+</body>
+</html>

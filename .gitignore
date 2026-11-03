@@ -1,0 +1,5 @@
+captures/
+venv/
+__pycache__/
+.DS_Store
+sim_location.json

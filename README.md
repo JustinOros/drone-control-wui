@@ -1,0 +1,144 @@
+# drone-control-wui
+
+A web UI for flying a drone from your computer. Click waypoints on a map, watch the live camera, fly manually with the keyboard or an Xbox controller, and take pictures or record video. Works against an ArduPilot simulator first, then a real drone over WiFi or 4G LTE.
+
+## Features
+
+- Start screen: **Fly with SIM** or **Real flight**
+- Click-to-add waypoints on a satellite or street map, one click to launch the mission
+- Live drone position, heading, altitude, speed, battery, GPS and flight mode
+- Live camera view next to the map, with Popout (own window) and Fullscreen buttons (double-click the video also toggles fullscreen)
+- One button to Start, Pause and Play the mission, also on the Xbox Start button
+- Manual flight: W/S forward and back, A/D strafe, Q/E yaw, Space up, Left Shift down
+- Xbox (or any standard) controller through the browser Gamepad API, laid out like a standard RC controller: sticks, takeoff, land, return to launch, mission pause and play, speed, photo and video
+- Take Picture and Start/Stop Recording, saved to `captures/`
+- Takeoff, Land, Return to Launch, Arm, Disarm
+- Reset the SIM drone to your real GPS location with one button
+- Optional reverse leg: after the last waypoint, fly back through the waypoints in reverse, then return to launch
+- Metric / Imperial toggle for altitude and speed (remembered in your browser)
+- WiFi link for close range, 4G LTE link for long range, selectable at connect time
+
+## How it works
+
+```
+Browser (map, video, keyboard, gamepad)
+        |  WebSocket + MJPEG
+   server.py (FastAPI, pymavlink, OpenCV)
+        |  MAVLink
+   ArduPilot SITL   or   real flight controller (via companion computer)
+```
+
+## Quick start (SIM)
+
+1. Start the web UI. Missing Python packages are installed automatically on first run:
+
+   ```
+   python3 server.py
+   ```
+
+2. The page opens in your default browser automatically (set `NO_BROWSER=1` to disable). Click **Fly with SIM**.
+3. Click the map to add waypoints, then click **Start mission** (or press Start on an Xbox controller). While the mission runs the same button becomes **Pause**, which holds position, and then **Play**, which resumes from the current waypoint.
+
+**Fly with SIM** uses a bundled simulator (`sim.py`) that speaks MAVLink the way ArduCopter does: arm, takeoff, GUIDED velocity control, waypoint missions, RTL and land. Nothing else needs to be installed. It starts at 32.2226, -110.9747 by default, change it with the `SIM_LAT` and `SIM_LON` environment variables.
+
+Click **Reset SIM to my GPS** to move the simulated drone to your real location (the browser asks for location permission). It only works while disarmed, clears any waypoints, and is remembered in `sim_location.json` so the next SIM start begins there. That file is git-ignored.
+
+If a real ArduPilot SITL is already sending MAVLink to UDP port 14550, the SIM button connects to that instead and the bundled simulator is not started:
+
+```
+sim_vehicle.py -v ArduCopter --map --console
+```
+
+The SIM camera is a synthetic view so the video panel, picture and recording buttons can all be tested without hardware.
+
+## Real flight
+
+Click **Real flight**, pick a link, fill in the connection details, and confirm the safety prompt.
+
+| Link | Range | MAVLink connection | Video |
+|------|-------|--------------------|-------|
+| WiFi | 100 to 300 m, 1 to 2 km with a directional antenna | `udpin:0.0.0.0:14550` (drone companion computer forwards to your computer's IP) | RTSP or MJPEG URL from the drone |
+| 4G LTE | Anywhere with cell coverage | `tcp:your-relay-host:5760` (a relay server running mavlink-router) | RTSP or MJPEG URL via the relay |
+
+On the drone, a Raspberry Pi (or similar) reads the flight controller serial port and forwards MAVLink, for example with `mavlink-router` or MAVProxy, and streams the camera with MediaMTX or GStreamer. For LTE, the Pi and your computer both connect out to a relay on a server with a public address, so no port forwarding at home is needed.
+
+Settings are remembered in your browser.
+
+### Safety
+
+- Steering (forward, back, strafe and yaw) is locked while the altitude reads under 0.5 m, in the page and in the server. You can still climb from the ground.
+- Return to launch goes back to the spot where the drone was last armed, so if you relaunch from a new spot, that spot becomes home.
+- Configure return-to-launch on link loss, low battery and GPS loss in ArduPilot before the first flight.
+- Test everything in SIM first, then with props off, then tethered or low and close.
+- WASD over 4G adds latency (about 50 to 150 ms or more). Use waypoints for long range and keep manual control for close range.
+- Follow your local drone laws. In the US that means FAA registration over 250 g, visual line of sight, and a 400 ft altitude limit unless you hold a waiver. The server caps altitude at 120 m.
+- The server binds to 127.0.0.1 by default. It has no login, so do not expose it to the internet.
+
+## Compatible drones you can just buy
+
+This project talks MAVLink to an ArduPilot flight controller. Any drone running ArduPilot (ArduCopter is the tested target) should work. If you would rather buy than build, these are good starting points. Prices are rough and change often, so check current listings.
+
+| Drone | Flight stack | Rough price | Notes |
+|-------|--------------|-------------|-------|
+| Holybro X500 V2 kit (Pixhawk 6C) | PX4 or ArduPilot | $500 to $1,000 | Popular 500 mm dev frame, GPS included, easy to add a Pi, camera and LTE modem |
+| Holybro S500 V2 kit | PX4 or ArduPilot | $400 to $700 | Cheaper 500 mm dev frame, same idea |
+| Holybro QAV250 kit | PX4 or ArduPilot | $300 to $600 | Smaller, faster 250 mm frame |
+| ModalAI Starling 2 | PX4 | $3,000 and up | Ready-to-fly with onboard computer and cameras, LTE add-on modems available, pricey but the least assembly |
+| Skywalker X8 airframe plus Pixhawk-class controller | ArduPlane | $300 to $700 | Fixed-wing for long endurance and range, a classic LTE long-range platform |
+
+Notes:
+
+- ArduPilot is the primary target. PX4 uses different flight mode names, so some buttons (Land, RTL, Manual mode) may need adjusting.
+- Most kits need a companion computer (Raspberry Pi Zero 2 W or Pi 4), a camera, and for long range a 4G LTE modem with a data SIM. Video over LTE uses roughly 1 to 3 GB per hour at 720p.
+- **Not compatible:** DJI, Autel, Skydio consumer drones, Parrot ANAFI, and toy drones. They use closed or proprietary control protocols, not MAVLink.
+
+## Build your own
+
+A typical build is about $250 to $450:
+
+- Flight controller running ArduPilot (Matek H743 or Pixhawk class)
+- GPS and compass module, ESCs, motors, 5 to 7 inch frame, LiPo or Li-ion battery
+- Raspberry Pi Zero 2 W or Pi 4 as companion computer
+- Pi camera or USB camera
+- 4G LTE modem for long range
+
+## Controls
+
+| Input | Action |
+|-------|--------|
+| W / S | Forward / back |
+| A / D | Strafe left / right |
+| Q / E | Yaw left / right |
+| Space | Up |
+| Left Shift | Down |
+| Xbox left stick up / down | Climb / descend |
+| Xbox left stick left / right | Yaw |
+| Xbox right stick | Move forward, back, left, right |
+| Xbox Y | Arm and take off to the alt box height, then switch to Manual |
+| Xbox X | Land |
+| Xbox Back / View | Return to launch |
+| Xbox Start | Start, pause or resume the mission. Also the stop button: during Land, Return to launch, a takeoff climb or a mission start it halts the action and holds position |
+| Xbox L3 (press left stick) | Manual on or off |
+| Xbox LB / RB | Speed down / up |
+| Xbox A | Take picture |
+| Xbox B | Start or stop recording |
+
+Click the gear icon in the top right of the panel to remap any controller button or stick, switch between Mode 1 and Mode 2 stick layouts, invert an axis, or reset to the defaults above. Mappings are saved in your browser.
+
+After a halt the drone hovers and pressing Start again does nothing until you take control (Manual, Takeoff, Land or RTL), so a second press cannot restart something by accident. The on-screen mission button works the same way and shows Hold while an action can be halted.
+
+The default Xbox layout follows a standard RC controller (Mode 2): left stick is throttle and yaw, right stick is pitch and roll. Centered sticks hold position and altitude.
+
+Turn on **Manual** in the panel first. Manual control switches the drone to GUIDED mode.
+
+## Roadmap
+
+- Test against full ArduPilot SITL before every release
+- WebRTC video for lower latency
+- Automatic WiFi to LTE link failover
+- Saved missions and geofence drawing
+- PX4 mode support
+
+## License
+
+MIT

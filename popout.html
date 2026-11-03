@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>drone-control-wui camera</title>
+<style>
+html, body { margin:0; height:100%; background:#000; overflow:hidden; }
+img { width:100vw; height:100vh; object-fit:contain; display:block; }
+#fs { position:fixed; right:8px; bottom:8px; background:rgba(38,45,55,.9); color:#e6e9ee; border:1px solid #2c333d; border-radius:6px; padding:8px 10px; font:14px system-ui, sans-serif; cursor:pointer; opacity:0; transition:opacity .2s; }
+body:hover #fs { opacity:1; }
+</style>
+</head>
+<body>
+<img id="v" src="/video" alt="drone camera">
+<button id="fs">Fullscreen</button>
+<script>
+const toggle = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+};
+document.getElementById("fs").onclick = toggle;
+document.getElementById("v").ondblclick = toggle;
+document.addEventListener("fullscreenchange", () => {
+  document.getElementById("fs").textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+});
+</script>
+</body>
+</html>
